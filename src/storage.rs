@@ -52,12 +52,23 @@ pub async fn store_memory(memory: Memory) -> Result<(), String> {
     // Store the memory
     MEMORIES.with(|m| {
         if let Some(ref mut memories) = *m.borrow_mut() {
-            memories.insert(memory_id.clone(), memory);
+            memories.insert(memory_id.clone(), memory.clone());
             Ok(())
         } else {
             Err("Memory storage not available".to_string())
         }
     })?;
+    
+    // Add to vector store if embedding exists
+    if !memory.embedding.is_empty() {
+        if let Err(e) = crate::vector_store::AdvancedVectorStore::add_vector(
+            memory_id.clone(), 
+            memory.embedding.clone()
+        ) {
+            ic_cdk::println!("Failed to add vector to store: {}", e);
+            // Continue anyway - memory is still stored even if vector indexing fails
+        }
+    }
     
     // Update user's memory index
     USER_MEMORIES.with(|um| {
@@ -72,6 +83,9 @@ pub async fn store_memory(memory: Memory) -> Result<(), String> {
             Err("User memory index not available".to_string())
         }
     })?;
+    
+    // Index memory content for suggestions
+    crate::suggestions::SuggestionsEngine::index_memory_content(&memory);
     
     ic_cdk::println!("Memory stored successfully: {}", memory_id);
     Ok(())
@@ -116,6 +130,11 @@ pub async fn delete_memory(id: &str, user_id: Principal) -> Result<bool, String>
     });
     
     if removed {
+        // Remove from vector store
+        if let Err(e) = crate::vector_store::AdvancedVectorStore::remove_vector(id) {
+            ic_cdk::println!("Failed to remove vector from store: {}", e);
+        }
+        
         // Remove from user's memory index
         USER_MEMORIES.with(|um| {
             if let Some(ref mut user_memories) = *um.borrow_mut() {
@@ -347,6 +366,26 @@ pub fn get_uptime_seconds() -> u64 {
 
 fn is_storage_initialized() -> bool {
     STORAGE_INITIALIZED.with(|init| *init.borrow())
+}
+
+pub fn count_memories_with_tag(tag: &str) -> Result<usize, String> {
+    if !is_storage_initialized() {
+        return Err("Storage not initialized".to_string());
+    }
+    
+    let mut count = 0;
+    
+    MEMORIES.with(|m| {
+        if let Some(ref memories) = *m.borrow() {
+            for (_, memory) in memories.iter() {
+                if memory.tags.contains(&tag.to_string()) {
+                    count += 1;
+                }
+            }
+        }
+    });
+    
+    Ok(count)
 }
 
 #[cfg(test)]

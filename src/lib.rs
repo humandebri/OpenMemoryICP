@@ -7,6 +7,10 @@ mod storage;
 mod search;
 mod utils;
 mod embedding;
+mod internet_identity;
+mod vector_store;
+mod suggestions;
+mod clustering;
 
 pub use types::*;
 pub use http_handlers::*;
@@ -15,6 +19,10 @@ pub use storage::*;
 pub use search::*;
 pub use utils::*;
 pub use embedding::*;
+pub use internet_identity::*;
+pub use vector_store::*;
+pub use suggestions::*;
+pub use clustering::*;
 
 // Export the main HTTP handlers for the canister
 #[query]
@@ -30,6 +38,8 @@ pub async fn http_request_update(req: HttpRequest) -> HttpResponse {
 #[init]
 pub async fn init() {
     storage::init_storage().await;
+    vector_store::AdvancedVectorStore::init().expect("Failed to initialize vector store");
+    clustering::ClusteringEngine::init_categories();
 }
 
 #[pre_upgrade]

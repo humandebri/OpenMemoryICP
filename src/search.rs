@@ -6,14 +6,58 @@ use candid::Principal;
 // For now, it provides a placeholder for future vector search implementation
 
 pub async fn semantic_search(
-    _query_embedding: Vec<f32>,
-    _limit: usize,
-    _user_filter: Option<Principal>,
-    _tags: Option<Vec<String>>,
+    query_embedding: Vec<f32>,
+    limit: usize,
+    user_filter: Option<Principal>,
+    tags: Option<Vec<String>>,
 ) -> Result<Vec<SearchResult>, String> {
-    // TODO: Implement semantic search with IC-Vectune
-    // For now, fallback to simple text search
-    Err("Semantic search not implemented yet. Use simple text search instead.".to_string())
+    // Use advanced vector store for semantic search
+    let similar_ids = crate::vector_store::AdvancedVectorStore::search_similar(
+        &query_embedding, 
+        limit * 2, // Get more results to filter by user/tags
+        None
+    )?;
+    
+    let mut results = Vec::new();
+    
+    for (memory_id, similarity_score) in similar_ids {
+        // Get memory details
+        if let Ok(Some(memory)) = crate::storage::get_memory(&memory_id) {
+            // Apply user filter
+            if let Some(user) = user_filter {
+                if memory.user_id != user {
+                    continue;
+                }
+            }
+            
+            // Apply tag filter
+            if let Some(ref required_tags) = tags {
+                let has_required_tags = required_tags.iter().any(|tag| {
+                    memory.tags.iter().any(|memory_tag| 
+                        memory_tag.to_lowercase().contains(&tag.to_lowercase())
+                    )
+                });
+                if !has_required_tags {
+                    continue;
+                }
+            }
+            
+            // Calculate enhanced relevance score
+            let enhanced_score = calculate_relevance_score(&memory, "", similarity_score);
+            
+            results.push(SearchResult {
+                memory,
+                similarity_score: enhanced_score,
+            });
+            
+            // Stop when we have enough results
+            if results.len() >= limit {
+                break;
+            }
+        }
+    }
+    
+    Ok(results)
 }
 
 pub async fn generate_embedding_and_search(
@@ -22,9 +66,18 @@ pub async fn generate_embedding_and_search(
     user_filter: Option<Principal>,
     tags: Option<Vec<String>>,
 ) -> Result<Vec<SearchResult>, String> {
-    // TODO: Generate embedding for query and perform semantic search
-    // For now, use simple text search
-    search_memories_simple(query, limit, tags, user_filter)
+    // Generate embedding for query
+    match crate::embedding::generate_embedding(query).await {
+        Ok(query_embedding) => {
+            // Perform semantic search
+            semantic_search(query_embedding, limit, user_filter, tags).await
+        }
+        Err(e) => {
+            ic_cdk::println!("Failed to generate embedding for search: {}", e);
+            // Fallback to simple text search
+            crate::storage::search_memories_simple(query, limit, tags, user_filter)
+        }
+    }
 }
 
 pub async fn generate_query_embedding(query: &str) -> Result<Vec<f32>, String> {

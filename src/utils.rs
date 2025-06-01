@@ -1,8 +1,8 @@
 use crate::types::*;
 use url::Url;
 use std::collections::HashMap;
-use uuid::Uuid;
 use ic_cdk::api::time;
+use sha2::{Sha256, Digest};
 
 pub fn extract_path(url: &str) -> String {
     if let Ok(parsed_url) = Url::parse(&format!("http://localhost{}", url)) {
@@ -50,7 +50,29 @@ pub fn extract_path_param(path: &str, pattern: &str) -> Option<String> {
 }
 
 pub fn generate_uuid() -> String {
-    Uuid::new_v4().to_string()
+    // Create a simple UUID using time and counter for uniqueness
+    static mut COUNTER: u64 = 0;
+    
+    unsafe {
+        COUNTER = COUNTER.wrapping_add(1);
+        let time_ns = time();
+        let data = format!("{}_{}", time_ns, COUNTER);
+        
+        // Hash the data to create a UUID-like string
+        let mut hasher = Sha256::new();
+        hasher.update(data.as_bytes());
+        let result = hasher.finalize();
+        
+        // Format as a UUID-like string
+        format!(
+            "{:08x}-{:04x}-{:04x}-{:04x}-{:012x}",
+            u32::from_be_bytes([result[0], result[1], result[2], result[3]]),
+            u16::from_be_bytes([result[4], result[5]]),
+            u16::from_be_bytes([result[6], result[7]]),
+            u16::from_be_bytes([result[8], result[9]]),
+            u64::from_be_bytes([result[10], result[11], result[12], result[13], result[14], result[15], 0, 0]) >> 16
+        )
+    }
 }
 
 pub fn get_current_time() -> u64 {
