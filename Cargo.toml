@@ -1,0 +1,28 @@
+[package]
+name = "openmemory_icp"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+ic-cdk = "0.17"
+ic-stable-structures = "0.6"
+candid = "0.10"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+uuid = { version = "1.10", features = ["v4", "serde"] }
+base64 = "0.22"
+sha2 = "0.10"
+url = "2.5"
+regex = "1.11"
+urlencoding = "2.1"
+
+[dependencies.ic-cdk-macros]
+version = "0.17"
+
+[profile.release]
+opt-level = 3
+lto = true
+strip = true
