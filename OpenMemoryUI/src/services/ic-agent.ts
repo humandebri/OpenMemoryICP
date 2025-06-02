@@ -54,8 +54,13 @@ class ICAgentService {
     if (this.isInitialized) return;
 
     try {
-      // Initialize auth client
-      this.authClient = await AuthClient.create();
+      // Initialize auth client with 30-day session duration
+      this.authClient = await AuthClient.create({
+        idleOptions: {
+          disableIdle: true, // Disable idle timeout for long sessions
+          disableDefaultIdleCallback: true
+        }
+      });
 
       // Create agent
       const host = DFX_NETWORK === 'local' ? LOCAL_REPLICA_HOST : IC_HOST;
@@ -90,12 +95,17 @@ class ICAgentService {
         identityProvider: DFX_NETWORK === 'local' 
           ? `http://rdmx6-jaaaa-aaaah-qdrya-cai.localhost:4943`
           : 'https://identity.ic0.app',
+        // Set maximum session duration to 30 days
+        maxTimeToLive: BigInt(30 * 24 * 60 * 60 * 1000 * 1000 * 1000), // 30 days in nanoseconds
         onSuccess: () => {
           this.updateAgentIdentity();
+          // Store login state for reload persistence
+          localStorage.setItem('ii_authenticated', 'true');
           resolve(true);
         },
         onError: (error) => {
           console.error('Login failed:', error);
+          localStorage.removeItem('ii_authenticated');
           resolve(false);
         },
       });
@@ -106,11 +116,55 @@ class ICAgentService {
     if (this.authClient) {
       await this.authClient.logout();
       this.updateAgentIdentity();
+      // Clear login state from localStorage
+      localStorage.removeItem('ii_authenticated');
     }
   }
 
   async isAuthenticated(): Promise<boolean> {
-    return (await this.authClient?.isAuthenticated()) ?? false;
+    if (!this.authClient) {
+      return false;
+    }
+
+    const authClientResult = await this.authClient.isAuthenticated();
+    
+    // If auth client says we're authenticated, update agent identity and return true
+    if (authClientResult) {
+      this.updateAgentIdentity();
+      localStorage.setItem('ii_authenticated', 'true');
+      return true;
+    }
+
+    // If not authenticated, clear localStorage
+    localStorage.removeItem('ii_authenticated');
+    return false;
+  }
+
+  async restoreSession(): Promise<boolean> {
+    try {
+      if (!this.authClient) {
+        await this.initialize();
+      }
+
+      const wasAuthenticated = localStorage.getItem('ii_authenticated') === 'true';
+      
+      if (wasAuthenticated) {
+        const isAuthenticated = await this.isAuthenticated();
+        if (isAuthenticated) {
+          console.log('Session restored successfully');
+          return true;
+        } else {
+          console.log('Previous session expired');
+          localStorage.removeItem('ii_authenticated');
+        }
+      }
+      
+      return false;
+    } catch (error) {
+      console.error('Failed to restore session:', error);
+      localStorage.removeItem('ii_authenticated');
+      return false;
+    }
   }
 
   getIdentity(): Identity | null {

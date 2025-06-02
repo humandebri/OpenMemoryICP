@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { Routes, Route } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { Layout } from '@/components/layout/Layout';
@@ -16,23 +16,41 @@ import { useMemoryStore } from '@/stores/useMemoryStore';
 
 function App() {
   const { addToast, setError } = useMemoryStore();
+  const [isInitializing, setIsInitializing] = useState(true);
 
   useEffect(() => {
     // Initialize the IC agent and API connection
     const initializeApp = async () => {
       try {
+        setIsInitializing(true);
+        
+        // Initialize the API (includes session restoration)
         await openMemoryAPI.initialize();
+        
+        // Check if session was restored
+        const isAuthenticated = await openMemoryAPI.isAuthenticated();
+        if (isAuthenticated) {
+          console.log('Session restored from previous login');
+          addToast({
+            type: 'success',
+            title: 'Welcome Back',
+            message: 'Your session has been restored',
+            duration: 3000,
+          });
+        }
         
         // Check connection to backend
         const health = await openMemoryAPI.getHealth();
         console.log('OpenMemory backend connected:', health);
         
-        addToast({
-          type: 'success',
-          title: 'Connected',
-          message: 'Successfully connected to OpenMemory backend',
-          duration: 3000,
-        });
+        if (!isAuthenticated) {
+          addToast({
+            type: 'success',
+            title: 'Connected',
+            message: 'Successfully connected to OpenMemory backend',
+            duration: 3000,
+          });
+        }
       } catch (error) {
         console.warn('Failed to initialize app (running in demo mode):', error);
         console.log('App will continue in demo mode without backend connection');
@@ -44,11 +62,26 @@ function App() {
           message: 'Running in demo mode - backend connection not available.',
           duration: 5000,
         });
+      } finally {
+        setIsInitializing(false);
       }
     };
 
     initializeApp();
   }, [addToast, setError]);
+
+  // Show loading screen while initializing
+  if (isInitializing) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600 mx-auto mb-4"></div>
+          <p className="text-gray-600">Initializing OpenMemory...</p>
+          <p className="text-sm text-gray-400 mt-1">Restoring your session</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50">

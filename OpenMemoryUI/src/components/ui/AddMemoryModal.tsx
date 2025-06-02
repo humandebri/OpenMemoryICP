@@ -25,6 +25,12 @@ export const AddMemoryModal: React.FC<AddMemoryModalProps> = ({ isOpen, onClose 
   const checkAuthStatus = async () => {
     setIsCheckingAuth(true);
     try {
+      // First try to restore session, then check if authenticated
+      const sessionRestored = await icAgent.restoreSession();
+      if (sessionRestored) {
+        console.log('Session restored in modal');
+      }
+      
       const authenticated = await icAgent.isAuthenticated();
       setIsAuthenticated(authenticated);
     } catch (error) {

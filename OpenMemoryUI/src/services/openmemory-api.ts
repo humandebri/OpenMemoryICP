@@ -12,6 +12,8 @@ import type {
 class OpenMemoryAPI {
   async initialize() {
     await icAgent.initialize();
+    // Try to restore session from previous login
+    await icAgent.restoreSession();
   }
 
   // Health and status
@@ -199,6 +201,10 @@ class OpenMemoryAPI {
     return await icAgent.isAuthenticated();
   }
 
+  async restoreSession(): Promise<boolean> {
+    return await icAgent.restoreSession();
+  }
+
   getPrincipal() {
     return icAgent.getPrincipal();
   }
@@ -223,5 +229,6 @@ export const {
   login,
   logout,
   isAuthenticated,
+  restoreSession,
   getPrincipal,
 } = openMemoryAPI;
