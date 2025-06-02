@@ -2,9 +2,9 @@ use crate::types::*;
 use crate::utils::*;
 use crate::auth::*;
 use crate::storage::*;
-use crate::internet_identity::*;
 use serde_json::json;
 use ic_cdk::api::time;
+use candid::Principal;
 
 pub fn handle_http_request(req: HttpRequest) -> HttpResponse {
     let path = extract_path(&req.url);
@@ -39,23 +39,19 @@ pub async fn handle_http_request_update(req: HttpRequest) -> HttpResponse {
     ic_cdk::println!("HTTP Update Request: {} {}", method, path);
     
     // Authenticate user for all update operations (supports both Bearer tokens and Internet Identity)
-    let user = match authenticate_request_enhanced(&req).await {
+    let user = match authenticate_request(&req).await {
         Ok(user) => user,
         Err(e) => return error_response(401, &format!("Authentication failed: {}", e)),
     };
     
     match (method.as_str(), path.as_str()) {
-        ("POST", "/auth/login") => handle_ii_login(&req).await,
-        ("POST", "/auth/logout") => handle_ii_logout(&req).await,
         ("POST", "/memories/search") => handle_semantic_search(&req, user).await,
-        ("POST", "/clusters") => handle_create_cluster(&req, user).await,
         ("POST", "/memories") => handle_add_memory(&req, user).await,
+        ("POST", "/conversations") => handle_save_conversation(&req, user).await,
+        ("GET", "/conversations") => handle_list_conversations(&req, user).await,
         ("DELETE", path) if path.starts_with("/memories/") => handle_delete_memory(&req, user).await,
         ("POST", "/memories/bulk") => handle_bulk_add(&req, user).await,
         ("DELETE", "/memories/bulk") => handle_bulk_delete(&req, user).await,
-        ("POST", path) if path.starts_with("/users/") && path.ends_with("/settings") => {
-            handle_update_settings(&req, user).await
-        }
         _ => error_response(404, "Not found"),
     }
 }
@@ -95,141 +91,50 @@ fn handle_vector_stats() -> HttpResponse {
     success_response(&response, 200)
 }
 
-
 fn handle_get_memory(req: &HttpRequest) -> HttpResponse {
     let path = extract_path(&req.url);
+    let memory_id = path.strip_prefix("/memories/").unwrap_or("");
     
-    if let Some(memory_id) = extract_path_param(&path, "/memories/{id}") {
-        match get_memory(&memory_id) {
-            Ok(Some(memory)) => success_response(&memory, 200),
-            Ok(None) => error_response(404, "Memory not found"),
-            Err(e) => error_response(500, &format!("Failed to get memory: {}", e)),
-        }
-    } else {
-        error_response(400, "Invalid memory ID")
+    if memory_id.is_empty() {
+        return error_response(400, "Memory ID is required");
+    }
+    
+    match get_memory(memory_id) {
+        Ok(Some(memory)) => success_response(&memory, 200),
+        Ok(None) => error_response(404, "Memory not found"),
+        Err(e) => error_response(500, &format!("Failed to get memory: {}", e)),
     }
 }
 
 fn handle_list_memories(req: &HttpRequest) -> HttpResponse {
     let query_params = parse_query_params(&req.url);
     
+    let limit: usize = query_params
+        .get("limit")
+        .and_then(|l| l.parse().ok())
+        .unwrap_or(50)
+        .min(100); // Max 100 memories per request
+        
     let offset: usize = query_params
         .get("offset")
         .and_then(|o| o.parse().ok())
         .unwrap_or(0);
     
-    let limit: usize = query_params
-        .get("limit")
-        .and_then(|l| l.parse().ok())
-        .unwrap_or(20);
+    let memories = list_memories(offset, limit, None).unwrap_or_default();
     
-    if limit > 100 {
-        return error_response(400, "Limit cannot exceed 100");
-    }
+    let response = json!({
+        "memories": memories,
+        "limit": limit,
+        "offset": offset,
+        "total_count": get_memory_count()
+    });
     
-    let user_filter = query_params
-        .get("user")
-        .and_then(|u| candid::Principal::from_text(u).ok());
-    
-    match list_memories(offset, limit, user_filter) {
-        Ok(memories) => {
-            let response = ListMemoriesResponse {
-                memories: memories.clone(),
-                total_count: memories.len(), // Will be improved later
-                offset,
-                limit,
-            };
-            success_response(&response, 200)
-        }
-        Err(e) => error_response(500, &format!("Failed to list memories: {}", e)),
-    }
-}
-
-async fn handle_add_memory(req: &HttpRequest, user: candid::Principal) -> HttpResponse {
-    let request: AddMemoryRequest = match serde_json::from_slice(&req.body) {
-        Ok(req) => req,
-        Err(e) => return error_response(400, &format!("Invalid JSON: {}", e)),
-    };
-    
-    if request.content.trim().is_empty() {
-        return error_response(400, "Content cannot be empty");
-    }
-    
-    if request.content.len() > 10000 {
-        return error_response(400, "Content too large (max 10000 characters)");
-    }
-    
-    // Generate embedding for the content
-    let embedding = match crate::embedding::generate_embedding(&request.content).await {
-        Ok(emb) => emb,
-        Err(e) => {
-            ic_cdk::println!("Failed to generate embedding: {}", e);
-            // For now, continue without embedding. In production, you might want to fail the request
-            Vec::new()
-        }
-    };
-    
-    let memory = Memory {
-        id: generate_uuid(),
-        user_id: user,
-        content: request.content,
-        embedding,
-        metadata: request.metadata.unwrap_or_default(),
-        tags: request.tags.unwrap_or_default(),
-        created_at: time(),
-        updated_at: time(),
-    };
-    
-    match store_memory(memory.clone()).await {
-        Ok(_) => {
-            let response = AddMemoryResponse {
-                id: memory.id,
-                message: "Memory created successfully".to_string(),
-            };
-            success_response(&response, 201)
-        }
-        Err(e) => error_response(500, &format!("Failed to store memory: {}", e)),
-    }
-}
-
-async fn handle_delete_memory(req: &HttpRequest, user: candid::Principal) -> HttpResponse {
-    let path = extract_path(&req.url);
-    
-    if let Some(memory_id) = extract_path_param(&path, "/memories/{id}") {
-        match delete_memory(&memory_id, user).await {
-            Ok(true) => {
-                let response = json!({
-                    "deleted": true,
-                    "message": "Memory deleted successfully"
-                });
-                success_response(&response, 200)
-            }
-            Ok(false) => error_response(404, "Memory not found or permission denied"),
-            Err(e) => error_response(500, &format!("Failed to delete memory: {}", e)),
-        }
-    } else {
-        error_response(400, "Invalid memory ID")
-    }
-}
-
-async fn handle_bulk_add(_req: &HttpRequest, _user: candid::Principal) -> HttpResponse {
-    // TODO: Implement bulk add functionality
-    error_response(501, "Bulk add not implemented yet")
-}
-
-async fn handle_bulk_delete(_req: &HttpRequest, _user: candid::Principal) -> HttpResponse {
-    // TODO: Implement bulk delete functionality
-    error_response(501, "Bulk delete not implemented yet")
-}
-
-async fn handle_update_settings(_req: &HttpRequest, _user: candid::Principal) -> HttpResponse {
-    // TODO: Implement user settings update
-    error_response(501, "User settings update not implemented yet")
+    success_response(&response, 200)
 }
 
 fn handle_cors_preflight() -> HttpResponse {
     HttpResponse {
-        status_code: 204,
+        status_code: 200,
         headers: create_cors_headers(),
         body: Vec::new(),
         upgrade: Some(false),
@@ -237,103 +142,13 @@ fn handle_cors_preflight() -> HttpResponse {
 }
 
 fn handle_list_sessions() -> HttpResponse {
-    let sessions = list_active_sessions();
-    let session_info: Vec<serde_json::Value> = sessions.into_iter().map(|s| {
-        json!({
-            "session_key": s.session_key,
-            "user_principal": s.user_principal.to_string(),
-            "created_at": s.created_at,
-            "expires_at": s.expires_at
-        })
-    }).collect();
-    
+    // Return empty sessions for now
     let response = json!({
-        "sessions": session_info,
-        "count": session_info.len()
+        "sessions": [],
+        "count": 0
     });
     
     success_response(&response, 200)
-}
-
-async fn handle_ii_login(req: &HttpRequest) -> HttpResponse {
-    let auth_data = match String::from_utf8(req.body.clone()) {
-        Ok(data) => data,
-        Err(_) => return error_response(400, "Invalid request body"),
-    };
-    
-    match authenticate_with_ii(&auth_data).await {
-        Ok(principal) => {
-            // Generate session token for frontend use
-            let session_info = json!({
-                "status": "success",
-                "principal": principal.to_string(),
-                "message": "Authenticated with Internet Identity"
-            });
-            success_response(&session_info, 200)
-        }
-        Err(e) => error_response(401, &format!("Authentication failed: {}", e))
-    }
-}
-
-async fn handle_ii_logout(req: &HttpRequest) -> HttpResponse {
-    if let Some(session_key) = extract_ii_session(req) {
-        let revoked = revoke_session(&session_key);
-        if revoked {
-            let response = json!({
-                "status": "success",
-                "message": "Session revoked successfully"
-            });
-            success_response(&response, 200)
-        } else {
-            error_response(404, "Session not found")
-        }
-    } else {
-        error_response(400, "No session to revoke")
-    }
-}
-
-async fn handle_semantic_search(req: &HttpRequest, user: candid::Principal) -> HttpResponse {
-    #[derive(serde::Deserialize)]
-    struct SearchRequest {
-        query: String,
-        limit: Option<usize>,
-        tags: Option<Vec<String>>,
-    }
-    
-    let search_req: SearchRequest = match serde_json::from_slice(&req.body) {
-        Ok(req) => req,
-        Err(e) => return error_response(400, &format!("Invalid JSON: {}", e)),
-    };
-    
-    if search_req.query.trim().is_empty() {
-        return error_response(400, "Query cannot be empty");
-    }
-    
-    let limit = search_req.limit.unwrap_or(10).min(100); // Max 100 results
-    
-    match crate::search::generate_embedding_and_search(
-        &search_req.query, 
-        limit, 
-        Some(user), // Filter by user
-        search_req.tags
-    ).await {
-        Ok(results) => {
-            // Record search for suggestions
-            crate::suggestions::SuggestionsEngine::record_search(
-                user,
-                &search_req.query,
-                results.len()
-            );
-            
-            let response = SearchResponse {
-                results,
-                total_count: 0, // TODO: Implement proper counting
-                query_time_ms: 0, // TODO: Add timing
-            };
-            success_response(&response, 200)
-        }
-        Err(e) => error_response(500, &format!("Search failed: {}", e)),
-    }
 }
 
 fn handle_get_suggestions(req: &HttpRequest) -> HttpResponse {
@@ -363,62 +178,52 @@ fn handle_get_suggestions(req: &HttpRequest) -> HttpResponse {
     
     let response = json!({
         "suggestions": suggestions,
-        "query": query,
-        "count": suggestions.len()
+        "context": query,
+        "user_provided": user.is_some()
     });
     
     success_response(&response, 200)
 }
 
 fn handle_get_clusters(req: &HttpRequest) -> HttpResponse {
-    let _query_params = parse_query_params(&req.url);
+    let query_params = parse_query_params(&req.url);
     
-    // Extract user from headers if available
-    let user = extract_bearer_token(&req.headers)
-        .and_then(|token| {
-            futures::executor::block_on(async {
-                crate::auth::verify_token(&token).await.ok()
-            })
-        });
+    let min_cluster_size: usize = query_params
+        .get("min_cluster_size")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(2);
     
-    if let Some(user_id) = user {
-        let clusters = crate::clustering::ClusteringEngine::get_user_clusters(user_id);
-        
-        let response = json!({
-            "clusters": clusters,
-            "count": clusters.len(),
-            "user_id": user_id.to_string()
-        });
-        
-        success_response(&response, 200)
-    } else {
-        error_response(401, "Authentication required")
-    }
+    // Get stored clusters (placeholder for now)
+    let clusters: Vec<crate::clustering::MemoryCluster> = vec![];
+    
+    // Filter by minimum size
+    let filtered_clusters: Vec<_> = clusters
+        .into_iter()
+        .filter(|cluster| cluster.memory_ids.len() >= min_cluster_size)
+        .collect();
+    
+    let response = json!({
+        "clusters": filtered_clusters,
+        "total_clusters": filtered_clusters.len(),
+        "min_cluster_size": min_cluster_size
+    });
+    
+    success_response(&response, 200)
 }
 
 fn handle_get_categories() -> HttpResponse {
     // Return predefined categories
     let categories = vec![
-        json!({
-            "id": "tech",
-            "name": "Technology",
-            "description": "Technical information, programming, software, and tech concepts"
-        }),
-        json!({
-            "id": "business", 
-            "name": "Business",
-            "description": "Business concepts, strategy, management, and professional topics"
-        }),
-        json!({
-            "id": "personal",
-            "name": "Personal", 
-            "description": "Personal notes, thoughts, experiences, and private information"
-        }),
-        json!({
-            "id": "reference",
-            "name": "Reference",
-            "description": "Reference materials, documentation, and factual information"
-        })
+        "work".to_string(),
+        "personal".to_string(),
+        "learning".to_string(),
+        "ideas".to_string(),
+        "research".to_string(),
+        "projects".to_string(),
+        "meetings".to_string(),
+        "notes".to_string(),
+        "reminders".to_string(),
+        "goals".to_string(),
     ];
     
     let response = json!({
@@ -429,88 +234,206 @@ fn handle_get_categories() -> HttpResponse {
     success_response(&response, 200)
 }
 
-async fn handle_create_cluster(req: &HttpRequest, user: candid::Principal) -> HttpResponse {
+async fn handle_add_memory(req: &HttpRequest, user: Principal) -> HttpResponse {
+    let body_str = match std::str::from_utf8(&req.body) {
+        Ok(s) => s,
+        Err(_) => return error_response(400, "Invalid UTF-8 in request body"),
+    };
+
+    let request: AddMemoryRequest = match serde_json::from_str(body_str) {
+        Ok(req) => req,
+        Err(e) => return error_response(400, &format!("Invalid JSON: {}", e)),
+    };
+
+    if request.content.trim().is_empty() {
+        return error_response(400, "Content cannot be empty");
+    }
+
+    // Generate embedding for the content
+    let embedding = match crate::embedding::generate_embedding(&request.content).await {
+        Ok(emb) => emb,
+        Err(e) => return error_response(500, &format!("Failed to generate embedding: {}", e)),
+    };
+
+    let memory_id = crate::utils::generate_uuid();
+    let timestamp = ic_cdk::api::time();
+
+    let memory = Memory {
+        id: memory_id.clone(),
+        user_id: user,
+        content: request.content.trim().to_string(),
+        embedding,
+        metadata: request.metadata.unwrap_or_default(),
+        tags: request.tags.unwrap_or_default(),
+        created_at: timestamp,
+        updated_at: timestamp,
+    };
+
+    match store_memory(memory.clone()).await {
+        Ok(_) => {
+            // Add to vector store
+            if let Err(e) = crate::vector_store::AdvancedVectorStore::add_vector(
+                memory.id.clone(),
+                memory.embedding.clone()
+            ) {
+                ic_cdk::println!("Failed to add vector to store: {}", e);
+            }
+            
+            let response = AddMemoryResponse {
+                id: memory.id,
+                created_at: memory.created_at,
+            };
+            success_response(&response, 201)
+        }
+        Err(e) => error_response(500, &format!("Failed to store memory: {}", e)),
+    }
+}
+
+async fn handle_save_conversation(req: &HttpRequest, user: Principal) -> HttpResponse {
+    let body_str = match std::str::from_utf8(&req.body) {
+        Ok(s) => s,
+        Err(_) => return error_response(400, "Invalid UTF-8 in request body"),
+    };
+
+    let request: SaveConversationRequest = match serde_json::from_str(body_str) {
+        Ok(req) => req,
+        Err(e) => return error_response(400, &format!("Invalid JSON: {}", e)),
+    };
+
+    if request.title.trim().is_empty() {
+        return error_response(400, "Title cannot be empty");
+    }
+
+    if request.content.trim().is_empty() {
+        return error_response(400, "Content cannot be empty");
+    }
+
+    let conversation_id = crate::utils::generate_uuid();
+    let word_count = request.content.split_whitespace().count() as u32;
+    let timestamp = ic_cdk::api::time();
+
+    let conversation = Conversation {
+        id: conversation_id.clone(),
+        user_id: user,
+        title: request.title.trim().to_string(),
+        content: request.content.trim().to_string(),
+        source: request.source.unwrap_or_else(|| "api".to_string()),
+        metadata: request.metadata.unwrap_or_default(),
+        word_count,
+        created_at: timestamp,
+        updated_at: timestamp,
+    };
+
+    match crate::storage::save_conversation(conversation.clone()).await {
+        Ok(_) => {
+            let response = json!({
+                "id": conversation.id,
+                "title": conversation.title,
+                "word_count": conversation.word_count,
+                "created_at": conversation.created_at,
+                "message": "Conversation saved successfully"
+            });
+            success_response(&response, 201)
+        }
+        Err(e) => error_response(500, &format!("Failed to save conversation: {}", e)),
+    }
+}
+
+async fn handle_list_conversations(req: &HttpRequest, user: Principal) -> HttpResponse {
+    let query_params = parse_query_params(&req.url);
+    
+    let limit: usize = query_params
+        .get("limit")
+        .and_then(|l| l.parse().ok())
+        .unwrap_or(20)
+        .min(100); // Max 100 conversations per request
+        
+    let offset: usize = query_params
+        .get("offset")
+        .and_then(|o| o.parse().ok())
+        .unwrap_or(0);
+
+    match crate::storage::get_user_conversations(user, limit, offset) {
+        Ok(conversations) => {
+            let response = json!({
+                "conversations": conversations,
+                "limit": limit,
+                "offset": offset,
+                "total_count": conversations.len()
+            });
+            success_response(&response, 200)
+        }
+        Err(e) => error_response(500, &format!("Failed to get conversations: {}", e)),
+    }
+}
+
+async fn handle_semantic_search(req: &HttpRequest, user: Principal) -> HttpResponse {
+    let body_str = match std::str::from_utf8(&req.body) {
+        Ok(s) => s,
+        Err(_) => return error_response(400, "Invalid UTF-8 in request body"),
+    };
+
     #[derive(serde::Deserialize)]
-    struct CreateClusterRequest {
-        memory_ids: Vec<String>,
-        method: Option<String>,
-        k: Option<usize>,
-        time_period: Option<String>,
-        name: Option<String>,
-        description: Option<String>,
+    struct SearchRequest {
+        query: String,
+        limit: Option<usize>,
+        tags: Option<Vec<String>>,
     }
     
-    let cluster_req: CreateClusterRequest = match serde_json::from_slice(&req.body) {
+    let search_req: SearchRequest = match serde_json::from_str(body_str) {
         Ok(req) => req,
         Err(e) => return error_response(400, &format!("Invalid JSON: {}", e)),
     };
     
-    if cluster_req.memory_ids.is_empty() {
-        return error_response(400, "At least one memory ID is required");
+    if search_req.query.trim().is_empty() {
+        return error_response(400, "Query cannot be empty");
     }
     
-    let method = cluster_req.method.unwrap_or_else(|| "content".to_string());
+    let limit = search_req.limit.unwrap_or(10).min(100); // Max 100 results
     
-    let clustering_result = match method.as_str() {
-        "kmeans" => {
-            let k = cluster_req.k.unwrap_or(3);
-            crate::clustering::ClusteringEngine::cluster_memories_kmeans(
-                user,
-                cluster_req.memory_ids,
-                k
-            )
-        },
-        "content" => {
-            crate::clustering::ClusteringEngine::cluster_by_content(
-                user,
-                cluster_req.memory_ids
-            )
-        },
-        "tags" => {
-            crate::clustering::ClusteringEngine::cluster_by_tags(
-                user,
-                cluster_req.memory_ids
-            )
-        },
-        "time" => {
-            let time_period = match cluster_req.time_period.as_deref() {
-                Some("day") => crate::clustering::TimePeriod::Day,
-                Some("week") => crate::clustering::TimePeriod::Week,
-                Some("month") => crate::clustering::TimePeriod::Month,
-                Some("year") => crate::clustering::TimePeriod::Year,
-                _ => crate::clustering::TimePeriod::Week,
+    match crate::search::generate_embedding_and_search(
+        &search_req.query, 
+        limit, 
+        Some(user), // Filter by user
+        search_req.tags
+    ).await {
+        Ok(results) => {
+            let response = SearchResponse {
+                results,
+                total_count: 0, // TODO: Implement proper counting
+                query_time_ms: 0, // TODO: Add timing
             };
-            crate::clustering::ClusteringEngine::cluster_by_time(
-                user,
-                cluster_req.memory_ids,
-                time_period
-            )
-        },
-        _ => {
-            return error_response(400, "Invalid clustering method. Use: kmeans, content, tags, or time");
+            success_response(&response, 200)
         }
-    };
-    
-    match clustering_result {
-        Ok(result) => {
-            // Store the clusters
-            for cluster in &result.clusters {
-                if let Err(e) = crate::clustering::ClusteringEngine::store_cluster(cluster.clone()) {
-                    ic_cdk::println!("Failed to store cluster: {}", e);
-                }
-            }
-            
-            let response = json!({
-                "status": "success",
-                "clusters": result.clusters,
-                "unclustered_memories": result.unclustered_memories,
-                "clustering_score": result.clustering_score,
-                "method_used": result.method_used,
-                "message": format!("Created {} clusters using {} method", result.clusters.len(), method)
-            });
-            
-            success_response(&response, 201)
-        },
-        Err(e) => error_response(500, &format!("Clustering failed: {}", e))
+        Err(e) => error_response(500, &format!("Search failed: {}", e)),
     }
+}
+
+async fn handle_delete_memory(req: &HttpRequest, user: Principal) -> HttpResponse {
+    let path = extract_path(&req.url);
+    let memory_id = path.strip_prefix("/memories/").unwrap_or("");
+    
+    if memory_id.is_empty() {
+        return error_response(400, "Memory ID is required");
+    }
+    
+    match delete_memory(memory_id, user).await {
+        Ok(true) => {
+            let response = json!({
+                "deleted": true,
+                "message": "Memory deleted successfully"
+            });
+            success_response(&response, 200)
+        }
+        Ok(false) => error_response(404, "Memory not found or permission denied"),
+        Err(e) => error_response(500, &format!("Failed to delete memory: {}", e)),
+    }
+}
+
+async fn handle_bulk_add(_req: &HttpRequest, _user: Principal) -> HttpResponse {
+    error_response(501, "Bulk add not implemented yet")
+}
+
+async fn handle_bulk_delete(_req: &HttpRequest, _user: Principal) -> HttpResponse {
+    error_response(501, "Bulk delete not implemented yet")
 }

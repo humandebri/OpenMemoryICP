@@ -1,0 +1,53 @@
+{
+  "timestamp": "2025-06-02T00:12:49.813Z",
+  "url": "http://localhost:3001",
+  "tests": [
+    {
+      "step": 1,
+      "action": "Navigate to homepage",
+      "status": "completed"
+    },
+    {
+      "step": 2,
+      "action": "Take homepage screenshot",
+      "status": "completed"
+    },
+    {
+      "step": 3,
+      "action": "Click Settings button",
+      "status": "completed"
+    },
+    {
+      "step": 4,
+      "action": "Take Settings page screenshot",
+      "status": "completed"
+    },
+    {
+      "step": 5,
+      "action": "Click User profile button",
+      "status": "completed"
+    },
+    {
+      "step": 6,
+      "action": "Take User page screenshot",
+      "status": "completed"
+    },
+    {
+      "step": 7,
+      "action": "Click Add Memory button",
+      "status": "completed"
+    },
+    {
+      "step": 8,
+      "action": "Take Add Memory modal screenshot",
+      "status": "completed"
+    }
+  ],
+  "screenshots": [
+    "01-homepage.png",
+    "02-settings-page.png",
+    "03-user-page.png",
+    "04-add-memory-modal.png",
+    "05-final-state.png"
+  ]
+}

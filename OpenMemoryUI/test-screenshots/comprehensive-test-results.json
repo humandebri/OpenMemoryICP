@@ -1,0 +1,32 @@
+{
+  "timestamp": "2025-06-02T02:20:03.278Z",
+  "tests": [
+    {
+      "name": "Homepage Load",
+      "status": "PASS",
+      "details": "Title: OpenMemory - AI-Powered Memory Assistant"
+    },
+    {
+      "name": "Internet Identity Button",
+      "status": "PASS",
+      "details": "Login button visible in header"
+    },
+    {
+      "name": "Categories Page Auth Check",
+      "status": "PASS",
+      "details": "Page has content"
+    },
+    {
+      "name": "Overall Test",
+      "status": "ERROR",
+      "details": "locator.isVisible: Error: strict mode violation: locator('button:has-text(\"Add Memory\")') resolved to 2 elements:\n    1) <button tabindex=\"0\" class=\"w-full flex items-center justify-center space-x-2 py-3 px-4 bg-gradient-to-r from-primary-600 to-primary-700 text-white rounded-xl hover:from-primary-700 hover:to-primary-800 transition-all duration-200 shadow-lg hover:shadow-xl\">…</button> aka getByRole('button', { name: 'Add Memory' })\n    2) <button tabindex=\"0\" class=\"w-full flex items-center justify-center space-x-2 py-3 px-4 bg-gradient-to-r from-primary-600 to-primary-700 text-white rounded-xl hover:from-primary-700 hover:to-primary-800 transition-all duration-200 shadow-lg hover:shadow-xl\">…</button> aka locator('button').filter({ hasText: 'Add Memory' }).nth(1)\n\nCall log:\n\u001b[2m    - checking visibility of locator('button:has-text(\"Add Memory\")')\u001b[22m\n"
+    }
+  ],
+  "summary": {
+    "passed": 3,
+    "failed": 0,
+    "errors": 1,
+    "total": 4,
+    "successRate": "75.0%"
+  }
+}

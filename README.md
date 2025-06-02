@@ -1,523 +1,555 @@
-# OpenMemory ICP
+# OpenMemory API Documentation
 
-A high-performance AI memory system built on Internet Computer Protocol (ICP) using Rust. OpenMemory provides semantic search capabilities through HTTP APIs, making it easy to integrate with any application.
+OpenMemoryは、ICP（Internet Computer Protocol）上に構築されたAI駆動メモリ管理システムです。このAPIを使用すると、外部アプリケーションからメモリの保存、検索、管理、および会話履歴の管理が可能です。
 
-## Features
+## 📚 目次
 
-- **HTTP API**: Simple REST endpoints for all operations
-- **Semantic Search**: AI-powered memory search using OpenAI embeddings
-- **Memory Clustering**: Automatic categorization with multiple algorithms (K-means, content-based, tag-based, temporal)
-- **Smart Suggestions**: Real-time search suggestions with user behavior tracking
-- **Internet Identity**: Secure authentication using IC's Internet Identity
-- **Advanced Vector Search**: High-performance similarity search with multiple distance functions
-- **Stable Storage**: Persistent data storage using IC's stable memory
-- **Multi-user Support**: Complete user isolation and authentication
-- **High Performance**: Optimized for low latency and high throughput
-- **Easy Integration**: Client libraries for Python and JavaScript
+- [概要](#概要)
+- [API エンドポイント](#api-エンドポイント)
+- [認証](#認証)
+- [メモリ管理](#メモリ管理)
+- [会話履歴管理](#会話履歴管理)
+- [検索機能](#検索機能)
+- [クラスタリング](#クラスタリング)
+- [SDK の使用](#sdk-の使用)
+- [エラーハンドリング](#エラーハンドリング)
+- [レート制限](#レート制限)
 
-## Architecture
+## 🚀 概要
 
-```
-Client Applications
-        ↓ HTTP API (GET/POST/DELETE)
-┌─────────────────────────────────┐
-│      ICP HTTP Gateway           │
-│  • GET → query_call             │
-│  • POST/DELETE → update_call    │
-└─────────────────┬───────────────┘
-                  ↓
-┌─────────────────────────────────┐
-│    OpenMemory Canister          │
-│  • HTTP Request Handlers        │
-│  • Authentication               │
-│  • Memory CRUD Operations       │
-│  • Semantic Search              │
-└─────────────────┬───────────────┘
-                  ↓
-┌─────────────────────────────────┐
-│      Stable Storage             │
-│  • Memory Persistence          │
-│  • User Data Isolation         │
-│  • Vector Embeddings           │
-└─────────────────────────────────┘
-```
+### ベースURL
+- **Mainnet**: `https://77fv5-oiaaa-aaaal-qsoea-cai.raw.icp0.io`
+- **Frontend**: `https://7yetj-dqaaa-aaaal-qsoeq-cai.icp0.io`
 
-## Quick Start
+### 対応形式
+- リクエスト: `application/json`
+- レスポンス: `application/json`
 
-### Prerequisites
+## 🔐 認証
 
-- [DFX](https://internetcomputer.org/docs/current/developer-docs/setup/install) (IC SDK)
-- Rust (latest stable)
-- OpenAI API key
+OpenMemory APIは2つの認証方法をサポートしています：
 
-### Installation
-
-1. Clone and enter the project:
+### 1. API Key認証（推奨）
 ```bash
-cd OpenMemory
-```
-
-2. Install dependencies:
-```bash
-dfx start --background  # Start local IC replica
-dfx deps pull
-dfx deps init
-```
-
-3. Set your OpenAI API key:
-```bash
-export OPENAI_API_KEY="your-api-key-here"
-```
-
-4. Deploy the canister:
-```bash
-dfx deploy
-```
-
-### Basic Usage
-
-Once deployed, you can interact with OpenMemory using HTTP requests:
-
-```bash
-# Health check
-curl http://localhost:4943/health
-
-# Add a memory (requires authentication)
-curl -X POST http://localhost:4943/memories \
+curl -X POST "${BASE_URL}/memories" \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer test-token" \
-  -d '{
-    "content": "ICPは分散型クラウドコンピュータプラットフォームです",
-    "metadata": {"source": "documentation"},
-    "tags": ["ICP", "blockchain"]
-  }'
-
-# Search memories
-curl "http://localhost:4943/memories/search?q=ICPの特徴&limit=5"
-
-# List memories
-curl "http://localhost:4943/memories?limit=10"
+  -H "X-API-Key: your_api_key_here" \
+  -d '{"content":"テストメモリ"}'
 ```
 
-## API Reference
-
-### Authentication
-
-All write operations require a Bearer token in the Authorization header:
+### 2. Bearer Token認証
+```bash
+curl -X POST "${BASE_URL}/memories" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer your_bearer_token" \
+  -d '{"content":"テストメモリ"}'
 ```
-Authorization: Bearer <token>
+
+### 開発用APIキー
+開発・テスト用に以下のAPIキーを使用できます：
+- `openmemory-api-key-development`
+- `claude-code-integration-key`
+
+## 📝 メモリ管理
+
+### メモリを追加
+```bash
+POST /memories
 ```
 
-For development, use `test-token` or `demo-user` as tokens.
-
-### Endpoints
-
-#### GET /health
-Health check endpoint.
-
-**Response:**
+**リクエスト例:**
 ```json
 {
-  "status": "healthy",
-  "timestamp": 1706764800000,
-  "version": "0.1.0",
-  "memory_count": 42
+  "content": "今日学んだReactのuseEffectフックについて",
+  "tags": ["react", "javascript", "programming"],
+  "metadata": {
+    "category": "learning",
+    "source": "tutorial"
+  }
 }
 ```
 
-#### GET /stats
-Service statistics.
-
-**Response:**
-```json
-{
-  "total_memories": 1337,
-  "total_users": 42,
-  "avg_memory_size": 256.5,
-  "uptime_seconds": 86400
-}
-```
-
-#### POST /memories
-Create a new memory.
-
-**Request:**
-```json
-{
-  "content": "Memory content here",
-  "metadata": {"key": "value"},
-  "tags": ["tag1", "tag2"]
-}
-```
-
-**Response:**
+**レスポンス例:**
 ```json
 {
   "id": "mem_123abc",
-  "message": "Memory created successfully"
+  "created_at": 1748833231773490066
 }
 ```
 
-#### GET /memories/search
-Search memories semantically.
+### メモリ一覧を取得
+```bash
+GET /memories?limit=50&offset=0
+```
 
-**Query Parameters:**
-- `q` (required): Search query
-- `limit` (optional): Max results (default: 10, max: 100)
-- `tags` (optional): Comma-separated tags to filter by
-- `user` (optional): User ID to filter by
+**レスポンス例:**
+```json
+{
+  "memories": [
+    {
+      "id": "mem_123abc",
+      "user_id": "user_xyz",
+      "content": "今日学んだReactのuseEffectフック",
+      "embedding": [...],
+      "metadata": {"category": "learning"},
+      "tags": ["react", "javascript"],
+      "created_at": 1748833231773490066,
+      "updated_at": 1748833231773490066
+    }
+  ],
+  "limit": 50,
+  "offset": 0,
+  "total_count": 100
+}
+```
 
-**Response:**
+### 特定のメモリを取得
+```bash
+GET /memories/{memory_id}
+```
+
+### メモリを削除
+```bash
+DELETE /memories/{memory_id}
+```
+
+## 💬 会話履歴管理
+
+OpenMemory APIは、Claude CodeなどのIDEとの統合を想定した会話履歴管理機能を提供します。
+
+### 会話を保存
+```bash
+POST /conversations
+```
+
+**リクエスト例:**
+```json
+{
+  "title": "Reactコンポーネントの最適化について",
+  "content": "User: Reactコンポーネントのパフォーマンスを最適化する方法を教えて\n\nAssistant: Reactコンポーネントの最適化には以下の方法があります...",
+  "source": "claude_code",
+  "metadata": {
+    "project": "my-react-app",
+    "file_path": "src/components/MyComponent.tsx",
+    "language": "typescript"
+  }
+}
+```
+
+**レスポンス例:**
+```json
+{
+  "id": "conv_456def",
+  "title": "Reactコンポーネントの最適化について",
+  "word_count": 450,
+  "created_at": 1748833231773490066,
+  "message": "Conversation saved successfully"
+}
+```
+
+### 会話履歴一覧を取得
+```bash
+GET /conversations?limit=20&offset=0
+```
+
+**レスポンス例:**
+```json
+{
+  "conversations": [
+    {
+      "id": "conv_456def",
+      "user_id": "user_xyz",
+      "title": "Reactコンポーネントの最適化について",
+      "content": "User: ...\nAssistant: ...",
+      "source": "claude_code",
+      "metadata": {"project": "my-react-app"},
+      "word_count": 450,
+      "created_at": 1748833231773490066,
+      "updated_at": 1748833231773490066
+    }
+  ],
+  "limit": 20,
+  "offset": 0,
+  "total_count": 15
+}
+```
+
+## 🔍 検索機能
+
+### セマンティック検索
+```bash
+POST /memories/search
+```
+
+**リクエスト例:**
+```json
+{
+  "query": "React hooks",
+  "limit": 10,
+  "tags": ["react", "javascript"]
+}
+```
+
+**レスポンス例:**
 ```json
 {
   "results": [
     {
       "memory": {
-        "id": "mem_123",
-        "content": "Memory content...",
-        "metadata": {"key": "value"},
-        "tags": ["tag1"],
-        "created_at": 1706764800000
+        "id": "mem_123abc",
+        "content": "Reactのカスタムフックの作り方...",
+        "tags": ["react", "hooks"]
       },
-      "similarity_score": 0.95
+      "similarity_score": 0.85
     }
   ],
-  "total_count": 15,
-  "query_time_ms": 45
+  "total_count": 5,
+  "query_time_ms": 120
 }
 ```
 
-#### GET /memories/{id}
-Get a specific memory.
+## 🧩 クラスタリング
 
-**Response:**
-```json
-{
-  "id": "mem_123",
-  "content": "Memory content...",
-  "metadata": {"key": "value"},
-  "tags": ["tag1"],
-  "created_at": 1706764800000,
-  "updated_at": 1706764800000
-}
+### クラスター一覧を取得
+```bash
+GET /clusters?min_cluster_size=2
 ```
 
-#### GET /memories
-List memories with pagination.
-
-**Query Parameters:**
-- `offset` (optional): Number of items to skip (default: 0)
-- `limit` (optional): Max items to return (default: 20, max: 100)
-- `user` (optional): User ID to filter by
-
-**Response:**
-```json
-{
-  "memories": [...],
-  "total_count": 1337,
-  "offset": 0,
-  "limit": 20
-}
+### 新しいクラスターを作成
+```bash
+POST /clusters
 ```
 
-#### DELETE /memories/{id}
-Delete a memory.
-
-**Response:**
-```json
-{
-  "deleted": true,
-  "message": "Memory deleted successfully"
-}
-```
-
-#### GET /suggestions
-Get search suggestions based on query and user history.
-
-**Query Parameters:**
-- `q` (optional): Partial query for suggestions
-- `limit` (optional): Max suggestions to return (default: 10, max: 20)
-
-**Response:**
-```json
-{
-  "suggestions": [
-    {
-      "text": "programming tutorial",
-      "type": "recent_search",
-      "score": 0.95
-    },
-    {
-      "text": "rust blockchain",
-      "type": "popular_query", 
-      "score": 0.89
-    }
-  ],
-  "query": "prog",
-  "count": 2
-}
-```
-
-#### GET /categories
-Get available memory categories for clustering.
-
-**Response:**
-```json
-{
-  "categories": [
-    {
-      "id": "tech",
-      "name": "Technology",
-      "description": "Technical information, programming, software, and tech concepts"
-    },
-    {
-      "id": "business",
-      "name": "Business", 
-      "description": "Business concepts, strategy, management, and professional topics"
-    }
-  ],
-  "count": 4
-}
-```
-
-#### GET /clusters
-Get user's memory clusters (requires authentication).
-
-**Response:**
-```json
-{
-  "clusters": [
-    {
-      "id": "cluster_user123_tech",
-      "name": "Technology",
-      "description": "Technical memories clustered by content",
-      "memory_ids": ["mem_123", "mem_456"],
-      "cluster_type": "Category",
-      "created_at": 1706764800000
-    }
-  ],
-  "count": 3,
-  "user_id": "user123"
-}
-```
-
-#### POST /clusters
-Create memory clusters using various algorithms (requires authentication).
-
-**Request:**
+**リクエスト例:**
 ```json
 {
   "memory_ids": ["mem_123", "mem_456", "mem_789"],
   "method": "content",
-  "k": 3,
-  "time_period": "week"
+  "name": "React学習メモ",
+  "description": "Reactに関する学習内容をまとめたクラスター"
 }
 ```
 
-**Parameters:**
-- `memory_ids` (required): Array of memory IDs to cluster
-- `method` (optional): Clustering method - "kmeans", "content", "tags", or "time" (default: "content")
-- `k` (optional): Number of clusters for k-means (default: 3)
-- `time_period` (optional): Time period for temporal clustering - "day", "week", "month", "year"
-
-**Response:**
-```json
-{
-  "status": "success",
-  "clusters": [...],
-  "unclustered_memories": [],
-  "clustering_score": 0.85,
-  "method_used": "ContentBased",
-  "message": "Created 3 clusters using content method"
-}
-```
-
-## Client Libraries
-
-### Python
-
-```python
-from clients.python.openmemory_client import OpenMemoryClient
-
-client = OpenMemoryClient(
-    'https://your-canister.ic0.app',
-    auth_token='your-token'
-)
-
-# Add memory
-memory_id = client.add_memory(
-    "Important information here",
-    metadata={"source": "documentation"},
-    tags=["important", "docs"]
-)
-
-# Search
-results = client.search_memories("information", limit=5)
-
-# Get suggestions
-suggestions = client.get_suggestions("prog", limit=10)
-
-# Get categories
-categories = client.get_categories()
-
-# Create clusters
-cluster_result = client.create_clusters(
-    memory_ids=["id1", "id2", "id3"],
-    method="content"
-)
-```
+## 🛠 SDK の使用
 
 ### JavaScript/TypeScript
+```typescript
+import axios from 'axios';
 
-```javascript
-import OpenMemoryClient from './clients/javascript/openmemory-client.js';
+class OpenMemoryClient {
+  private baseURL = 'https://77fv5-oiaaa-aaaal-qsoea-cai.raw.icp0.io';
+  private apiKey: string;
 
-const client = new OpenMemoryClient(
-    'https://your-canister.ic0.app',
-    'your-token'
+  constructor(apiKey: string) {
+    this.apiKey = apiKey;
+  }
+
+  private getHeaders() {
+    return {
+      'Content-Type': 'application/json',
+      'X-API-Key': this.apiKey
+    };
+  }
+
+  async addMemory(content: string, tags?: string[]) {
+    const response = await axios.post(`${this.baseURL}/memories`, {
+      content,
+      tags: tags || []
+    }, {
+      headers: this.getHeaders()
+    });
+    return response.data;
+  }
+
+  async saveConversation(title: string, content: string, source = 'api') {
+    const response = await axios.post(`${this.baseURL}/conversations`, {
+      title,
+      content,
+      source
+    }, {
+      headers: this.getHeaders()
+    });
+    return response.data;
+  }
+
+  async searchMemories(query: string, limit = 10) {
+    const response = await axios.post(`${this.baseURL}/memories/search`, {
+      query,
+      limit
+    }, {
+      headers: this.getHeaders()
+    });
+    return response.data;
+  }
+}
+
+// 使用例
+const client = new OpenMemoryClient('your_api_key_here');
+
+// メモリを追加
+await client.addMemory('今日学んだこと', ['learning', 'notes']);
+
+// 会話を保存
+await client.saveConversation(
+  'プログラミング相談',
+  'User: エラーが出ます\nAssistant: そのエラーの詳細を...',
+  'claude_code'
 );
 
-// Add memory
-const memoryId = await client.addMemory(
-    "Important information here",
-    { source: "documentation" },
-    ["important", "docs"]
-);
-
-// Search
-const results = await client.searchMemories("information", { limit: 5 });
-
-// Get suggestions
-const suggestions = await client.getSuggestions("prog", { limit: 10 });
-
-// Get categories
-const categories = await client.getCategories();
-
-// Create clusters
-const clusterResult = await client.createClusters({
-    memoryIds: ["id1", "id2", "id3"],
-    method: "content"
-});
+// 検索
+const results = await client.searchMemories('React hooks');
 ```
 
-## Development
+### Python
+```python
+import requests
+import json
 
-### Project Structure
+class OpenMemoryClient:
+    def __init__(self, api_key: str):
+        self.base_url = "https://77fv5-oiaaa-aaaal-qsoea-cai.raw.icp0.io"
+        self.api_key = api_key
+        self.headers = {
+            "Content-Type": "application/json",
+            "X-API-Key": api_key
+        }
+    
+    def add_memory(self, content: str, tags: list = None):
+        """メモリを追加"""
+        data = {
+            "content": content,
+            "tags": tags or []
+        }
+        response = requests.post(
+            f"{self.base_url}/memories",
+            headers=self.headers,
+            json=data
+        )
+        return response.json()
+    
+    def save_conversation(self, title: str, content: str, source: str = "api"):
+        """会話を保存"""
+        data = {
+            "title": title,
+            "content": content,
+            "source": source
+        }
+        response = requests.post(
+            f"{self.base_url}/conversations",
+            headers=self.headers,
+            json=data
+        )
+        return response.json()
+    
+    def search_memories(self, query: str, limit: int = 10):
+        """メモリを検索"""
+        data = {
+            "query": query,
+            "limit": limit
+        }
+        response = requests.post(
+            f"{self.base_url}/memories/search",
+            headers=self.headers,
+            json=data
+        )
+        return response.json()
 
+# 使用例
+client = OpenMemoryClient("your_api_key_here")
+
+# メモリを追加
+result = client.add_memory("今日学んだPython", ["python", "programming"])
+print(f"メモリID: {result['id']}")
+
+# 会話を保存
+conversation = client.save_conversation(
+    "Pythonの質問",
+    "User: リスト内包表記について教えて\nAssistant: リスト内包表記は...",
+    "code_assistant"
+)
+print(f"会話ID: {conversation['id']}")
+
+# 検索
+results = client.search_memories("Python リスト")
+for result in results["results"]:
+    print(f"類似度: {result['similarity_score']:.2f}")
+    print(f"内容: {result['memory']['content'][:50]}...")
 ```
-src/
-├── lib.rs              # Main canister entry point
-├── types.rs            # Type definitions
-├── http_handlers.rs    # HTTP request handlers
-├── auth.rs             # Authentication logic
-├── storage.rs          # Stable memory storage
-├── search.rs           # Search functionality
-├── embedding.rs        # OpenAI embedding integration
-└── utils.rs            # Utility functions
 
-clients/
-├── python/             # Python client library
-└── javascript/         # JavaScript/TypeScript client
-
-dfx.json                # DFX configuration
-Cargo.toml              # Rust dependencies
-```
-
-### Building
-
+### curl コマンド例
 ```bash
-# Build the canister
-dfx build
+#!/bin/bash
 
-# Deploy locally
-dfx deploy
+API_KEY="your_api_key_here"
+BASE_URL="https://77fv5-oiaaa-aaaal-qsoea-cai.raw.icp0.io"
 
-# Deploy to IC mainnet
-dfx deploy --network ic
+# メモリを追加
+add_memory() {
+    curl -X POST "${BASE_URL}/memories" \
+        -H "Content-Type: application/json" \
+        -H "X-API-Key: ${API_KEY}" \
+        -d '{
+            "content": "今日学んだTypeScript",
+            "tags": ["typescript", "programming"]
+        }'
+}
+
+# 会話を保存
+save_conversation() {
+    curl -X POST "${BASE_URL}/conversations" \
+        -H "Content-Type: application/json" \
+        -H "X-API-Key: ${API_KEY}" \
+        -d '{
+            "title": "TypeScript相談",
+            "content": "User: 型定義について教えて\nAssistant: TypeScriptの型定義は...",
+            "source": "cli_tool"
+        }'
+}
+
+# メモリを検索
+search_memories() {
+    curl -X POST "${BASE_URL}/memories/search" \
+        -H "Content-Type: application/json" \
+        -H "X-API-Key: ${API_KEY}" \
+        -d '{
+            "query": "TypeScript 型",
+            "limit": 5
+        }'
+}
+
+# 実行
+add_memory
+save_conversation
+search_memories
 ```
 
-### Testing
+## ⚠️ エラーハンドリング
 
-```bash
-# Run Rust tests
-cargo test
-
-# Test HTTP endpoints
-curl http://localhost:4943/health
+### エラーレスポンス形式
+```json
+{
+  "error": "エラーメッセージ",
+  "code": 400
+}
 ```
 
-## Configuration
+### 一般的なエラーコード
+- `400` - Bad Request: リクエストが不正
+- `401` - Unauthorized: 認証失敗
+- `404` - Not Found: リソースが見つからない
+- `429` - Too Many Requests: レート制限超過
+- `500` - Internal Server Error: サーバーエラー
 
-### Environment Variables
+### エラーハンドリング例
+```typescript
+try {
+  const result = await client.addMemory(content);
+  console.log('Success:', result);
+} catch (error) {
+  if (error.response?.status === 401) {
+    console.error('認証エラー: APIキーを確認してください');
+  } else if (error.response?.status === 429) {
+    console.error('レート制限: しばらく待ってから再試行してください');
+  } else {
+    console.error('エラー:', error.response?.data?.error || error.message);
+  }
+}
+```
 
-- `OPENAI_API_KEY`: Your OpenAI API key for embedding generation
+## 📊 レート制限
 
-### Canister Settings
+現在のレート制限:
+- **一般API**: 1分間に60リクエスト
+- **検索API**: 1分間に30リクエスト
+- **会話保存**: 1分間に20リクエスト
 
-The canister can be configured through dfx.json or environment variables:
+レート制限に達した場合は、`429 Too Many Requests`が返されます。
 
-- Memory allocation for stable storage
-- HTTP outcall limits
-- Authentication settings
+## 🔗 統合例
 
-## Performance
+### Claude Code統合
+```typescript
+// Claude Codeプラグイン例
+async function saveConversationToOpenMemory(conversation: any) {
+  const client = new OpenMemoryClient(process.env.OPENMEMORY_API_KEY);
+  
+  try {
+    const result = await client.saveConversation(
+      `Conversation: ${conversation.title}`,
+      conversation.messages.map(msg => 
+        `${msg.role}: ${msg.content}`
+      ).join('\n\n'),
+      'claude_code'
+    );
+    
+    console.log('Conversation saved to OpenMemory:', result.id);
+    return result;
+  } catch (error) {
+    console.error('Failed to save conversation:', error);
+    throw error;
+  }
+}
+```
 
-### Benchmarks
+### VS Code拡張機能
+```typescript
+// VS Code拡張機能での使用例
+import * as vscode from 'vscode';
 
-- **API Response Time**: <300ms (reads), <1s (writes)
-- **Search Latency**: <500ms (10K memories with vector search)
-- **Clustering Performance**: <2s (1K memories, content-based)
-- **Suggestions Response**: <100ms (real-time)
-- **Throughput**: >50 requests/sec
-- **Storage Efficiency**: ~10KB per memory + embeddings
+async function saveCodeSnippetAsMemory(code: string, language: string) {
+  const apiKey = vscode.workspace.getConfiguration('openmemory').get('apiKey');
+  const client = new OpenMemoryClient(apiKey);
+  
+  const activeEditor = vscode.window.activeTextEditor;
+  const fileName = activeEditor?.document.fileName || 'unknown';
+  
+  await client.addMemory(code, [language, 'code_snippet'], {
+    file_path: fileName,
+    language: language,
+    source: 'vscode'
+  });
+  
+  vscode.window.showInformationMessage('Code snippet saved to OpenMemory!');
+}
+```
 
-### Optimization
+## 📱 フロントエンド設定
 
-- Vector embeddings cached in stable memory for fast similarity search
-- Advanced vector store with multiple similarity functions (cosine, euclidean, dot product)
-- Real-time suggestion engine with search history indexing
-- Efficient clustering algorithms with configurable parameters
-- Simple text search fallback for ultra-fast responses
-- Pagination and filtering for large result sets
-- Smart memory management with user data isolation
+### API設定画面
+OpenMemoryのWebUIから、APIキーの管理と設定を行えます：
 
-## Security
+1. **サイドバー**から「API Settings」をクリック
+2. **新しいAPIキーを作成**ボタンからキーを生成
+3. **ベースURL**をカスタムデプロイメント用に変更可能
+4. **生成されたキー**をコピーして外部アプリケーションで使用
 
-- **Authentication**: Bearer token based (development) / Internet Identity (production)
-- **User Isolation**: Each user's memories are stored separately
-- **Input Validation**: Content length limits and sanitization
-- **CORS**: Proper cross-origin headers for web integration
+### 設定手順
+1. `https://7yetj-dqaaa-aaaal-qsoeq-cai.icp0.io`にアクセス
+2. Internet Identityでログイン
+3. サイドバーの「API Settings」をクリック
+4. 「新しいキーを作成」で任意の名前を入力
+5. 生成されたAPIキーをコピー
+6. 外部アプリケーションで使用
 
-## Roadmap
+## 🤝 サポート
 
-- [x] **Internet Identity integration** - Complete with session management and delegation verification
-- [x] **Advanced vector search (IC-Vectune)** - High-performance similarity search with multiple distance functions
-- [x] **Real-time search suggestions** - Intelligent suggestions based on search history and user behavior
-- [x] **Memory clustering and categorization** - Multiple clustering algorithms (K-means, content-based, tag-based, temporal)
-- [x] **Advanced filtering and sorting** - Query parameters for tags, users, pagination, and limits
-- [x] **Memory sharing and collaboration** - User isolation with authentication-based access control
-- [x] **Analytics and insights dashboard** - Statistics API with memory counts, user metrics, and vector store analytics
+### ドキュメント
+- [ICP公式ドキュメント](https://internetcomputer.org/docs)
+- [Candid Interface](https://a4gq6-oaaaa-aaaab-qaa4q-cai.raw.icp0.io/?id=77fv5-oiaaa-aaaal-qsoea-cai)
 
-### Completed Features ✅
+### 開発者向けリソース
+- **GitHub**: OpenMemoryリポジトリ
+- **Discord**: ICP開発者コミュニティ
+- **Issue報告**: GitHubのIssuesページ
 
-All major roadmap items have been implemented and are production-ready!
+### Claude Code統合
+Claude CodeでOpenMemoryを使用する場合の具体的な統合方法：
 
-## Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Add tests
-5. Submit a pull request
-
-## License
-
-This project is licensed under the MIT License.
-
-## Support
-
-For questions and support, please open an issue on GitHub or contact the development team.
+1. **MCP Server設定**で`openmemory-mcp`を追加
+2. **APIキー**を環境変数に設定
+3. **会話履歴の自動保存**を有効化
+4. **検索機能**でプロジェクト関連の記憶を参照
 
 ---
 
-Built with ❤️ on Internet Computer Protocol
+**注意**: このAPIは現在開発中のため、仕様が変更される可能性があります。本番環境での使用前に最新のドキュメントを確認してください。

@@ -40,6 +40,20 @@ pub struct SearchResult {
     pub similarity_score: f32,
 }
 
+// Conversation Types
+#[derive(CandidType, Deserialize, Serialize, Clone, Debug)]
+pub struct Conversation {
+    pub id: String,
+    pub user_id: Principal,
+    pub title: String,
+    pub content: String,
+    pub source: String, // "claude_code", "manual", etc.
+    pub metadata: HashMap<String, String>,
+    pub word_count: u32,
+    pub created_at: u64,
+    pub updated_at: u64,
+}
+
 // API Request/Response Types
 #[derive(Deserialize)]
 pub struct AddMemoryRequest {
@@ -48,10 +62,18 @@ pub struct AddMemoryRequest {
     pub tags: Option<Vec<String>>,
 }
 
+#[derive(Deserialize)]
+pub struct SaveConversationRequest {
+    pub title: String,
+    pub content: String,
+    pub source: Option<String>,
+    pub metadata: Option<HashMap<String, String>>,
+}
+
 #[derive(Serialize)]
 pub struct AddMemoryResponse {
     pub id: String,
-    pub message: String,
+    pub created_at: u64,
 }
 
 #[derive(Serialize)]
@@ -130,11 +152,40 @@ impl Storable for Memory {
     }
 }
 
+// Implement Storable for Conversation type
+impl Storable for Conversation {
+    const BOUND: Bound = Bound::Unbounded;
+
+    fn to_bytes(&self) -> Cow<[u8]> {
+        Cow::Owned(candid::encode_one(self).unwrap())
+    }
+
+    fn from_bytes(bytes: Cow<[u8]>) -> Self {
+        candid::decode_one(&bytes).unwrap()
+    }
+}
+
 // Create a wrapper type for user memory lists to implement Storable
 #[derive(CandidType, Deserialize, Serialize, Clone, Default)]
 pub struct UserMemoryList(pub Vec<String>);
 
+// Create a wrapper type for user conversation lists to implement Storable
+#[derive(CandidType, Deserialize, Serialize, Clone, Default)]
+pub struct UserConversationList(pub Vec<String>);
+
 impl Storable for UserMemoryList {
+    const BOUND: Bound = Bound::Unbounded;
+
+    fn to_bytes(&self) -> Cow<[u8]> {
+        Cow::Owned(candid::encode_one(self).unwrap())
+    }
+
+    fn from_bytes(bytes: Cow<[u8]>) -> Self {
+        candid::decode_one(&bytes).unwrap()
+    }
+}
+
+impl Storable for UserConversationList {
     const BOUND: Bound = Bound::Unbounded;
 
     fn to_bytes(&self) -> Cow<[u8]> {

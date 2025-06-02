@@ -7,10 +7,14 @@ use std::cell::RefCell;
 type MemoryId = DefaultMemoryImpl;
 type MemoryMap = StableBTreeMap<String, Memory, MemoryId>;
 type UserMemoryMap = StableBTreeMap<Principal, UserMemoryList, MemoryId>;
+type ConversationMap = StableBTreeMap<String, Conversation, MemoryId>;
+type UserConversationMap = StableBTreeMap<Principal, UserConversationList, MemoryId>;
 
 thread_local! {
     static MEMORIES: RefCell<Option<MemoryMap>> = RefCell::new(None);
     static USER_MEMORIES: RefCell<Option<UserMemoryMap>> = RefCell::new(None);
+    static CONVERSATIONS: RefCell<Option<ConversationMap>> = RefCell::new(None);
+    static USER_CONVERSATIONS: RefCell<Option<UserConversationMap>> = RefCell::new(None);
     static STORAGE_INITIALIZED: RefCell<bool> = RefCell::new(false);
 }
 
@@ -21,6 +25,14 @@ pub async fn init_storage() {
     
     USER_MEMORIES.with(|um| {
         *um.borrow_mut() = Some(StableBTreeMap::init(DefaultMemoryImpl::default()));
+    });
+    
+    CONVERSATIONS.with(|c| {
+        *c.borrow_mut() = Some(StableBTreeMap::init(DefaultMemoryImpl::default()));
+    });
+    
+    USER_CONVERSATIONS.with(|uc| {
+        *uc.borrow_mut() = Some(StableBTreeMap::init(DefaultMemoryImpl::default()));
     });
     
     STORAGE_INITIALIZED.with(|init| {
@@ -386,6 +398,87 @@ pub fn count_memories_with_tag(tag: &str) -> Result<usize, String> {
     });
     
     Ok(count)
+}
+
+// Conversation storage functions
+pub async fn save_conversation(conversation: Conversation) -> Result<(), String> {
+    if !is_storage_initialized() {
+        return Err("Storage not initialized".to_string());
+    }
+    
+    let conversation_id = conversation.id.clone();
+    let user_id = conversation.user_id;
+    
+    // Store the conversation
+    CONVERSATIONS.with(|c| {
+        if let Some(ref mut conversations) = *c.borrow_mut() {
+            conversations.insert(conversation_id.clone(), conversation.clone());
+            Ok(())
+        } else {
+            Err("Conversation storage not available".to_string())
+        }
+    })?;
+    
+    // Add to user's conversation index
+    USER_CONVERSATIONS.with(|uc| {
+        if let Some(ref mut user_conversations) = *uc.borrow_mut() {
+            let mut conversation_list = user_conversations
+                .get(&user_id)
+                .unwrap_or_else(|| UserConversationList(Vec::new()));
+            
+            conversation_list.0.push(conversation_id.clone());
+            user_conversations.insert(user_id, conversation_list);
+        }
+    });
+    
+    ic_cdk::println!("Conversation saved successfully: {}", conversation_id);
+    Ok(())
+}
+
+pub fn get_conversation(id: &str) -> Result<Option<Conversation>, String> {
+    if !is_storage_initialized() {
+        return Err("Storage not initialized".to_string());
+    }
+    
+    CONVERSATIONS.with(|c| {
+        if let Some(ref conversations) = *c.borrow() {
+            Ok(conversations.get(&id.to_string()))
+        } else {
+            Err("Conversation storage not available".to_string())
+        }
+    })
+}
+
+pub fn get_user_conversations(user_id: Principal, limit: usize, offset: usize) -> Result<Vec<Conversation>, String> {
+    if !is_storage_initialized() {
+        return Err("Storage not initialized".to_string());
+    }
+    
+    USER_CONVERSATIONS.with(|uc| {
+        if let Some(ref user_conversations) = *uc.borrow() {
+            if let Some(conversation_list) = user_conversations.get(&user_id) {
+                let mut conversations = Vec::new();
+                
+                CONVERSATIONS.with(|c| {
+                    if let Some(ref conversation_map) = *c.borrow() {
+                        for id in conversation_list.0.iter().skip(offset).take(limit) {
+                            if let Some(conversation) = conversation_map.get(id) {
+                                conversations.push(conversation);
+                            }
+                        }
+                    }
+                });
+                
+                // Sort by creation time (newest first)
+                conversations.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+                Ok(conversations)
+            } else {
+                Ok(Vec::new())
+            }
+        } else {
+            Err("User conversation index not available".to_string())
+        }
+    })
 }
 
 #[cfg(test)]

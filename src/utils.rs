@@ -82,8 +82,10 @@ pub fn get_current_time() -> u64 {
 pub fn create_cors_headers() -> Vec<(String, String)> {
     vec![
         ("Access-Control-Allow-Origin".to_string(), "*".to_string()),
-        ("Access-Control-Allow-Methods".to_string(), "GET, POST, DELETE, OPTIONS".to_string()),
-        ("Access-Control-Allow-Headers".to_string(), "Content-Type, Authorization".to_string()),
+        ("Access-Control-Allow-Methods".to_string(), "GET, POST, PUT, DELETE, OPTIONS".to_string()),
+        ("Access-Control-Allow-Headers".to_string(), "Content-Type, Authorization, X-API-Key, X-Requested-With".to_string()),
+        ("Access-Control-Expose-Headers".to_string(), "Content-Length, Date, Server".to_string()),
+        ("Access-Control-Max-Age".to_string(), "86400".to_string()),
         ("Content-Type".to_string(), "application/json".to_string()),
     ]
 }

@@ -14,12 +14,11 @@ mod clustering;
 
 pub use types::*;
 pub use http_handlers::*;
-pub use auth::*;
+pub use auth::{authenticate_request, verify_token, verify_api_key, extract_api_key};
 pub use storage::*;
 pub use search::*;
 pub use utils::*;
 pub use embedding::*;
-pub use internet_identity::*;
 pub use vector_store::*;
 pub use suggestions::*;
 pub use clustering::*;

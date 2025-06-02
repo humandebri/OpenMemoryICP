@@ -5,6 +5,10 @@
       "type": "rust",
       "package": "openmemory_icp",
       "candid": "src/openmemory.did"
+    },
+    "openmemory_frontend": {
+      "type": "assets",
+      "source": ["OpenMemoryUI/dist/"]
     }
   },
   "defaults": {

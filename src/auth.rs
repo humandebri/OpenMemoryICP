@@ -4,10 +4,49 @@ use candid::Principal;
 use ic_cdk::api::time;
 
 pub async fn authenticate_request(req: &HttpRequest) -> Result<Principal, String> {
-    let token = extract_bearer_token(&req.headers)
-        .ok_or("Missing Authorization header")?;
+    // Try Bearer token first
+    if let Some(token) = extract_bearer_token(&req.headers) {
+        return verify_token(&token).await;
+    }
     
-    verify_token(&token).await
+    // Try API Key authentication
+    if let Some(api_key) = extract_api_key(&req.headers) {
+        return verify_api_key(&api_key).await;
+    }
+    
+    Err("Missing Authorization header or API Key".to_string())
+}
+
+pub async fn authenticate_request_enhanced(req: &HttpRequest) -> Result<Principal, String> {
+    authenticate_request(req).await
+}
+
+pub async fn verify_api_key(api_key: &str) -> Result<Principal, String> {
+    // Simple API key verification for development
+    // In production, this should be stored securely and mapped to user principals
+    
+    match api_key {
+        "openmemory-api-key-development" => {
+            Ok(Principal::from_text("rdmx6-jaaaa-aaaaa-aaadq-cai")
+                .map_err(|e| format!("Invalid principal: {}", e))?)
+        }
+        "claude-code-integration-key" => {
+            Ok(Principal::from_text("rrkah-fqaaa-aaaaa-aaaaq-cai")
+                .map_err(|e| format!("Invalid principal: {}", e))?)
+        }
+        _ => {
+            Err("Invalid API key".to_string())
+        }
+    }
+}
+
+pub fn extract_api_key(headers: &[(String, String)]) -> Option<String> {
+    for (key, value) in headers {
+        if key.to_lowercase() == "x-api-key" {
+            return Some(value.clone());
+        }
+    }
+    None
 }
 
 pub async fn verify_token(token: &str) -> Result<Principal, String> {

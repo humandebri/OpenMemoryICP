@@ -1,0 +1,56 @@
+{
+  "name": "OpenMemoryUI Development",
+  "version": "1.0.0",
+  "description": "MCP configuration for OpenMemoryUI frontend development with Playwright automation",
+  "mcpServers": {
+    "playwright": {
+      "command": "npx",
+      "args": [
+        "@playwright/mcp@latest"
+      ],
+      "env": {
+        "PLAYWRIGHT_BROWSERS_PATH": "./node_modules/playwright-core/.local-browsers",
+        "PLAYWRIGHT_BROWSER": "chromium",
+        "PLAYWRIGHT_HEADLESS": "false"
+      }
+    }
+  },
+  "tools": {
+    "playwright_screenshot": {
+      "description": "Take screenshots of web pages for visual testing and design verification"
+    },
+    "playwright_click": {
+      "description": "Click elements on web pages for automated testing"
+    },
+    "playwright_fill": {
+      "description": "Fill forms and input fields for testing user interactions"
+    },
+    "playwright_navigate": {
+      "description": "Navigate to different pages and routes"
+    },
+    "playwright_evaluate": {
+      "description": "Execute JavaScript in the browser context for advanced testing"
+    }
+  },
+  "workflows": {
+    "ui_development": {
+      "description": "Standard UI development workflow with automated testing",
+      "steps": [
+        "1. Make UI changes",
+        "2. Take screenshot to verify appearance", 
+        "3. Test user interactions",
+        "4. Verify responsive design",
+        "5. Run integration tests"
+      ]
+    },
+    "component_testing": {
+      "description": "Individual component testing workflow",
+      "steps": [
+        "1. Navigate to component story/page",
+        "2. Test different states and props",
+        "3. Verify accessibility",
+        "4. Take screenshots for documentation"
+      ]
+    }
+  }
+}
