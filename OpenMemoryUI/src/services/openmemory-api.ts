@@ -9,7 +9,51 @@ import type {
   HealthStatus,
 } from '@/types';
 
+// Token Management Types
+interface TokenInfo {
+  description?: string;
+  permissions: string[];
+  expires_at: bigint;
+  created_at: bigint;
+  last_used_at?: bigint;
+}
+
+interface CreateTokenResponse {
+  token: string;
+  expires_at: bigint;
+  permissions: string[];
+}
+
+// VectorDB Types
+interface VectorStats {
+  total_vectors: number;
+  total_unique_vectors: number;
+  average_vector_size: number;
+  memory_usage_bytes: number;
+  index_size: number;
+  hash_collisions: number;
+  query_performance_ms: number;
+}
+
+interface VectorConfig {
+  embedding_dimensions: number;
+  similarity_function: string;
+  index_type: string;
+  use_preprocessing: boolean;
+  max_vectors_per_user: number;
+}
+
+interface VectorMetrics {
+  search_latency: number[];
+  index_operations: number[];
+  memory_growth: number[];
+  timestamps: string[];
+}
+
 class OpenMemoryAPI {
+  private backendUrl = 'https://77fv5-oiaaa-aaaal-qsoea-cai.raw.icp0.io';
+  private apiKey = 'om_feoQrSrz5UqCQ3DjfaXkyMv7x4mtt08O'; // Development API key
+
   async initialize() {
     await icAgent.initialize();
     // Try to restore session from previous login
@@ -197,6 +241,170 @@ class OpenMemoryAPI {
     await icAgent.logout();
   }
 
+  // API Key management
+  async setOpenAIKey(apiKey: string): Promise<void> {
+    try {
+      const response = await fetch(`${this.backendUrl}/config/openai-key`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-OC-API-Key': this.apiKey,
+        },
+        body: JSON.stringify({ api_key: apiKey }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || `HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      if (!data.success) {
+        throw new Error(data.message || 'Failed to save API key');
+      }
+    } catch (error) {
+      console.error('Failed to save OpenAI API key:', error);
+      throw error;
+    }
+  }
+
+  async getConfig(): Promise<{
+    has_openai_key: boolean;
+    has_openrouter_key: boolean;
+    openai_key_preview?: string;
+    openrouter_key_preview?: string;
+    api_provider: string;
+    embedding_model: string;
+    available_models: Array<{
+      id: string;
+      name: string;
+      provider: string;
+      context_length: number;
+      pricing?: {
+        prompt: number;
+        completion: number;
+      };
+    }>;
+    updated_at?: number;
+  }> {
+    try {
+      const response = await fetch(`${this.backendUrl}/config`, {
+        method: 'GET',
+        headers: {
+          'X-OC-API-Key': this.apiKey,
+        },
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || `HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      return await response.json();
+    } catch (error) {
+      console.error('Failed to get config:', error);
+      throw error;
+    }
+  }
+
+  async deleteOpenAIKey(): Promise<void> {
+    try {
+      const response = await fetch(`${this.backendUrl}/config/openai-key`, {
+        method: 'DELETE',
+        headers: {
+          'X-OC-API-Key': this.apiKey,
+        },
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || `HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      if (!data.success) {
+        throw new Error(data.message || 'Failed to delete API key');
+      }
+    } catch (error) {
+      console.error('Failed to delete OpenAI API key:', error);
+      throw error;
+    }
+  }
+
+  async setOpenRouterKey(apiKey: string): Promise<void> {
+    try {
+      const response = await fetch(`${this.backendUrl}/config`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-OC-API-Key': this.apiKey,
+        },
+        body: JSON.stringify({ 
+          openrouter_api_key: apiKey,
+          api_provider: 'OpenRouter'
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || `HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      if (!data.success) {
+        throw new Error(data.message || 'Failed to save OpenRouter API key');
+      }
+    } catch (error) {
+      console.error('Failed to save OpenRouter API key:', error);
+      throw error;
+    }
+  }
+
+  async updateConfig(config: {
+    openai_api_key?: string;
+    openrouter_api_key?: string;
+    api_provider?: string;
+    embedding_model?: string;
+  }): Promise<void> {
+    try {
+      console.log('Sending config update request:', {
+        url: `${this.backendUrl}/config`,
+        config: config,
+        headers: {
+          'Content-Type': 'application/json',
+          'X-OC-API-Key': this.apiKey.substring(0, 8) + '...'
+        }
+      });
+      
+      const response = await fetch(`${this.backendUrl}/config`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-OC-API-Key': this.apiKey,
+        },
+        body: JSON.stringify(config),
+      });
+
+      console.log('Response status:', response.status, response.statusText);
+      
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        console.error('API error response:', errorData);
+        throw new Error(errorData.error || `HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      console.log('API success response:', data);
+      
+      if (!data.success) {
+        throw new Error(data.message || 'Failed to update configuration');
+      }
+    } catch (error) {
+      console.error('Failed to update config:', error);
+      throw error;
+    }
+  }
+
   async isAuthenticated(): Promise<boolean> {
     return await icAgent.isAuthenticated();
   }
@@ -207,6 +415,121 @@ class OpenMemoryAPI {
 
   getPrincipal() {
     return icAgent.getPrincipal();
+  }
+
+  // Access Token Management
+  async createAccessToken(
+    description: string,
+    expiresInDays: number = 30,
+    permissions: string[] = ['Read', 'Write']
+  ): Promise<CreateTokenResponse> {
+    try {
+      const response = await icAgent.createAccessToken(
+        description,
+        expiresInDays,
+        permissions
+      ) as CreateTokenResponse;
+      return response;
+    } catch (error) {
+      console.error('Failed to create access token:', error);
+      throw new Error('Failed to create access token');
+    }
+  }
+
+  async listAccessTokens(): Promise<TokenInfo[]> {
+    try {
+      const response = await icAgent.listAccessTokens() as { tokens: TokenInfo[] };
+      return response.tokens || [];
+    } catch (error) {
+      console.error('Failed to list access tokens:', error);
+      throw new Error('Failed to list access tokens');
+    }
+  }
+
+  async revokeAccessToken(token: string): Promise<void> {
+    try {
+      await icAgent.revokeAccessToken(token);
+    } catch (error) {
+      console.error('Failed to revoke access token:', error);
+      throw new Error('Failed to revoke access token');
+    }
+  }
+
+  // VectorDB Management
+  async getVectorStats(): Promise<VectorStats> {
+    try {
+      const response = await icAgent.getVectorStats() as VectorStats;
+      return response;
+    } catch (error) {
+      console.error('Failed to get vector stats:', error);
+      // Return mock data for now until backend endpoints are implemented
+      return {
+        total_vectors: 1234,
+        total_unique_vectors: 1200,
+        average_vector_size: 1536,
+        memory_usage_bytes: 8 * 1024 * 1024,
+        index_size: 16 * 1024 * 1024,
+        hash_collisions: 3,
+        query_performance_ms: 45
+      };
+    }
+  }
+
+  async getVectorConfig(): Promise<VectorConfig> {
+    try {
+      const response = await icAgent.getVectorConfig() as VectorConfig;
+      return response;
+    } catch (error) {
+      console.error('Failed to get vector config:', error);
+      // Return mock data for now until backend endpoints are implemented
+      return {
+        embedding_dimensions: 1536,
+        similarity_function: 'Cosine',
+        index_type: 'HNSW',
+        use_preprocessing: true,
+        max_vectors_per_user: 10000
+      };
+    }
+  }
+
+  async getVectorMetrics(): Promise<VectorMetrics> {
+    try {
+      const response = await icAgent.getVectorMetrics() as VectorMetrics;
+      return response;
+    } catch (error) {
+      console.error('Failed to get vector metrics:', error);
+      // Return mock data for now until backend endpoints are implemented
+      const now = Date.now();
+      const timestamps = Array.from({ length: 10 }, (_, i) => 
+        new Date(now - (9 - i) * 60 * 60 * 1000).toLocaleTimeString()
+      );
+      return {
+        search_latency: [42, 45, 38, 50, 43, 47, 41, 44, 46, 43],
+        index_operations: [12, 15, 10, 18, 14, 16, 11, 13, 17, 15],
+        memory_growth: Array.from({ length: 10 }, (_, i) => 
+          (7 + i * 0.1) * 1024 * 1024
+        ),
+        timestamps
+      };
+    }
+  }
+
+  async optimizeVectorIndex(): Promise<void> {
+    try {
+      await icAgent.optimizeVectorIndex();
+    } catch (error) {
+      console.error('Failed to optimize vector index:', error);
+      throw new Error('Failed to optimize vector index');
+    }
+  }
+
+  async rebuildVectorIndex(): Promise<void> {
+    try {
+      await icAgent.rebuildVectorIndex();
+    } catch (error) {
+      console.error('Failed to rebuild vector index:', error);
+      throw new Error('Failed to rebuild vector index');
+    }
   }
 }
 
@@ -231,4 +554,20 @@ export const {
   isAuthenticated,
   restoreSession,
   getPrincipal,
+  setOpenAIKey,
+  setOpenRouterKey,
+  getConfig,
+  updateConfig,
+  deleteOpenAIKey,
+  createAccessToken,
+  listAccessTokens,
+  revokeAccessToken,
+  getVectorStats,
+  getVectorConfig,
+  getVectorMetrics,
+  optimizeVectorIndex,
+  rebuildVectorIndex,
 } = openMemoryAPI;
+
+// Also export as 'api' for backward compatibility
+export const api = openMemoryAPI;

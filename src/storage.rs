@@ -1,38 +1,62 @@
 use crate::types::*;
 use candid::Principal;
-use ic_stable_structures::{StableBTreeMap, DefaultMemoryImpl};
+use ic_stable_structures::{StableBTreeMap, DefaultMemoryImpl, memory_manager::{MemoryId, MemoryManager, VirtualMemory}};
 use std::cell::RefCell;
 
-// Memory management using IC's stable structures
-type MemoryId = DefaultMemoryImpl;
-type MemoryMap = StableBTreeMap<String, Memory, MemoryId>;
-type UserMemoryMap = StableBTreeMap<Principal, UserMemoryList, MemoryId>;
-type ConversationMap = StableBTreeMap<String, Conversation, MemoryId>;
-type UserConversationMap = StableBTreeMap<Principal, UserConversationList, MemoryId>;
+// Memory management using IC's stable structures with unique memory IDs
+type VMem = VirtualMemory<DefaultMemoryImpl>;
+type MemoryMap = StableBTreeMap<String, crate::types::Memory, VMem>;
+type UserMemoryMap = StableBTreeMap<Principal, UserMemoryList, VMem>;
+type ConversationMap = StableBTreeMap<String, Conversation, VMem>;
+type UserConversationMap = StableBTreeMap<Principal, UserConversationList, VMem>;
+type UserConfigMap = StableBTreeMap<Principal, UserConfig, VMem>;
+type AccessTokenMap = StableBTreeMap<String, AccessToken, VMem>;
+
+const MEMORY_ID_MEMORIES: MemoryId = MemoryId::new(0);
+const MEMORY_ID_USER_MEMORIES: MemoryId = MemoryId::new(1);  
+const MEMORY_ID_CONVERSATIONS: MemoryId = MemoryId::new(2);
+const MEMORY_ID_USER_CONVERSATIONS: MemoryId = MemoryId::new(3);
+const MEMORY_ID_USER_CONFIG: MemoryId = MemoryId::new(4);
+const MEMORY_ID_ACCESS_TOKENS: MemoryId = MemoryId::new(5);
 
 thread_local! {
+    static MEMORY_MANAGER: RefCell<MemoryManager<DefaultMemoryImpl>> = RefCell::new(MemoryManager::init(DefaultMemoryImpl::default()));
     static MEMORIES: RefCell<Option<MemoryMap>> = RefCell::new(None);
     static USER_MEMORIES: RefCell<Option<UserMemoryMap>> = RefCell::new(None);
     static CONVERSATIONS: RefCell<Option<ConversationMap>> = RefCell::new(None);
     static USER_CONVERSATIONS: RefCell<Option<UserConversationMap>> = RefCell::new(None);
+    static USER_CONFIG: RefCell<Option<UserConfigMap>> = RefCell::new(None);
+    static ACCESS_TOKENS: RefCell<Option<AccessTokenMap>> = RefCell::new(None);
     static STORAGE_INITIALIZED: RefCell<bool> = RefCell::new(false);
 }
 
 pub async fn init_storage() {
-    MEMORIES.with(|m| {
-        *m.borrow_mut() = Some(StableBTreeMap::init(DefaultMemoryImpl::default()));
-    });
-    
-    USER_MEMORIES.with(|um| {
-        *um.borrow_mut() = Some(StableBTreeMap::init(DefaultMemoryImpl::default()));
-    });
-    
-    CONVERSATIONS.with(|c| {
-        *c.borrow_mut() = Some(StableBTreeMap::init(DefaultMemoryImpl::default()));
-    });
-    
-    USER_CONVERSATIONS.with(|uc| {
-        *uc.borrow_mut() = Some(StableBTreeMap::init(DefaultMemoryImpl::default()));
+    MEMORY_MANAGER.with(|mm| {
+        let memory_manager = mm.borrow();
+        
+        MEMORIES.with(|m| {
+            *m.borrow_mut() = Some(StableBTreeMap::init(memory_manager.get(MEMORY_ID_MEMORIES)));
+        });
+        
+        USER_MEMORIES.with(|um| {
+            *um.borrow_mut() = Some(StableBTreeMap::init(memory_manager.get(MEMORY_ID_USER_MEMORIES)));
+        });
+        
+        CONVERSATIONS.with(|c| {
+            *c.borrow_mut() = Some(StableBTreeMap::init(memory_manager.get(MEMORY_ID_CONVERSATIONS)));
+        });
+        
+        USER_CONVERSATIONS.with(|uc| {
+            *uc.borrow_mut() = Some(StableBTreeMap::init(memory_manager.get(MEMORY_ID_USER_CONVERSATIONS)));
+        });
+        
+        USER_CONFIG.with(|config| {
+            *config.borrow_mut() = Some(StableBTreeMap::init(memory_manager.get(MEMORY_ID_USER_CONFIG)));
+        });
+        
+        ACCESS_TOKENS.with(|tokens| {
+            *tokens.borrow_mut() = Some(StableBTreeMap::init(memory_manager.get(MEMORY_ID_ACCESS_TOKENS)));
+        });
     });
     
     STORAGE_INITIALIZED.with(|init| {
@@ -53,7 +77,7 @@ pub async fn post_upgrade() {
     ic_cdk::println!("Post-upgrade: Storage restored");
 }
 
-pub async fn store_memory(memory: Memory) -> Result<(), String> {
+pub async fn store_memory(memory: crate::types::Memory) -> Result<(), String> {
     if !is_storage_initialized() {
         return Err("Storage not initialized".to_string());
     }
@@ -103,7 +127,44 @@ pub async fn store_memory(memory: Memory) -> Result<(), String> {
     Ok(())
 }
 
-pub fn get_memory(id: &str) -> Result<Option<Memory>, String> {
+pub fn store_memory_sync(memory: crate::types::Memory) -> Result<(), String> {
+    if !is_storage_initialized() {
+        return Err("Storage not initialized".to_string());
+    }
+    
+    let memory_id = memory.id.clone();
+    
+    // Store in main memory map
+    MEMORIES.with(|m| {
+        if let Some(ref mut memories) = *m.borrow_mut() {
+            memories.insert(memory.id.clone(), memory.clone());
+        } else {
+            return Err("Memory storage not available".to_string());
+        }
+        Ok(())
+    })?;
+    
+    // Store in user memory map
+    USER_MEMORIES.with(|um| {
+        if let Some(ref mut user_memories) = *um.borrow_mut() {
+            // Get or create user memory list
+            let mut user_memory_list = user_memories.get(&memory.user_id).unwrap_or_default();
+            user_memory_list.0.push(memory.id.clone());
+            user_memories.insert(memory.user_id, user_memory_list);
+        } else {
+            return Err("User memory storage not available".to_string());
+        }
+        Ok(())
+    })?;
+    
+    // Update suggestions engine
+    crate::suggestions::SuggestionsEngine::index_memory_content(&memory);
+    
+    ic_cdk::println!("Memory stored synchronously: {}", memory_id);
+    Ok(())
+}
+
+pub fn get_memory(id: &str) -> Result<Option<crate::types::Memory>, String> {
     if !is_storage_initialized() {
         return Err("Storage not initialized".to_string());
     }
@@ -163,7 +224,7 @@ pub async fn delete_memory(id: &str, user_id: Principal) -> Result<bool, String>
     Ok(removed)
 }
 
-pub fn list_memories(offset: usize, limit: usize, user_filter: Option<Principal>) -> Result<Vec<Memory>, String> {
+pub fn list_memories(offset: usize, limit: usize, user_filter: Option<Principal>) -> Result<Vec<crate::types::Memory>, String> {
     if !is_storage_initialized() {
         return Err("Storage not initialized".to_string());
     }
@@ -207,7 +268,7 @@ pub fn list_memories(offset: usize, limit: usize, user_filter: Option<Principal>
     Ok(memories)
 }
 
-pub fn list_user_memories(user_id: Principal, offset: usize, limit: usize) -> Result<Vec<Memory>, String> {
+pub fn list_user_memories(user_id: Principal, offset: usize, limit: usize) -> Result<Vec<crate::types::Memory>, String> {
     if !is_storage_initialized() {
         return Err("Storage not initialized".to_string());
     }
@@ -477,6 +538,360 @@ pub fn get_user_conversations(user_id: Principal, limit: usize, offset: usize) -
             }
         } else {
             Err("User conversation index not available".to_string())
+        }
+    })
+}
+
+// User configuration functions
+pub fn save_user_config(user_id: Principal, openai_api_key: String) -> Result<(), String> {
+    if !is_storage_initialized() {
+        return Err("Storage not initialized".to_string());
+    }
+    
+    let timestamp = ic_cdk::api::time();
+    
+    // Get existing config or create new one
+    let mut config = get_user_config(user_id)?.unwrap_or_else(|| UserConfig {
+        user_id,
+        openai_api_key: None,
+        openrouter_api_key: None,
+        api_provider: crate::types::ApiProvider::OpenAI,
+        embedding_model: "text-embedding-ada-002".to_string(),
+        created_at: timestamp,
+        updated_at: timestamp,
+    });
+    
+    config.openai_api_key = Some(openai_api_key);
+    config.updated_at = timestamp;
+    
+    USER_CONFIG.with(|uc| {
+        if let Some(ref mut user_config) = *uc.borrow_mut() {
+            user_config.insert(user_id, config);
+            Ok(())
+        } else {
+            Err("User config storage not available".to_string())
+        }
+    })?;
+    
+    ic_cdk::println!("User config saved for user: {}", user_id);
+    Ok(())
+}
+
+pub fn get_user_config(user_id: Principal) -> Result<Option<UserConfig>, String> {
+    if !is_storage_initialized() {
+        return Err("Storage not initialized".to_string());
+    }
+    
+    let result = USER_CONFIG.with(|uc| {
+        if let Some(ref user_config) = *uc.borrow() {
+            Ok(user_config.get(&user_id))
+        } else {
+            Err("User config storage not available".to_string())
+        }
+    })?;
+    
+    Ok(result)
+}
+
+pub fn get_user_openai_key(user_id: Principal) -> Option<String> {
+    match get_user_config(user_id) {
+        Ok(Some(config)) => config.openai_api_key,
+        _ => None,
+    }
+}
+
+pub fn delete_user_openai_key(user_id: Principal) -> Result<bool, String> {
+    if !is_storage_initialized() {
+        return Err("Storage not initialized".to_string());
+    }
+    
+    let result = USER_CONFIG.with(|uc| {
+        if let Some(ref mut user_config) = *uc.borrow_mut() {
+            if let Some(mut config) = user_config.get(&user_id) {
+                config.openai_api_key = None;
+                config.updated_at = ic_cdk::api::time();
+                user_config.insert(user_id, config);
+                Ok(true)
+            } else {
+                Ok(false)
+            }
+        } else {
+            Err("User config storage not available".to_string())
+        }
+    })?;
+    
+    ic_cdk::println!("OpenAI API key deleted for user: {}", user_id);
+    Ok(result)
+}
+
+// New comprehensive config update function
+pub fn update_user_config(
+    user_id: Principal, 
+    openai_key: Option<String>,
+    openrouter_key: Option<String>,
+    provider: Option<crate::types::ApiProvider>,
+    model: Option<String>
+) -> Result<(), String> {
+    if !is_storage_initialized() {
+        return Err("Storage not initialized".to_string());
+    }
+    
+    let timestamp = ic_cdk::api::time();
+    
+    // Get existing config or create new one
+    let mut config = get_user_config(user_id)?.unwrap_or_else(|| UserConfig {
+        user_id,
+        openai_api_key: None,
+        openrouter_api_key: None,
+        api_provider: crate::types::ApiProvider::OpenAI,
+        embedding_model: "text-embedding-ada-002".to_string(),
+        created_at: timestamp,
+        updated_at: timestamp,
+    });
+    
+    // Update fields if provided
+    if let Some(key) = openai_key {
+        config.openai_api_key = Some(key);
+    }
+    if let Some(key) = openrouter_key {
+        config.openrouter_api_key = Some(key);
+    }
+    if let Some(p) = provider {
+        config.api_provider = p;
+    }
+    if let Some(m) = model {
+        config.embedding_model = m;
+    }
+    
+    config.updated_at = timestamp;
+    
+    USER_CONFIG.with(|uc| {
+        if let Some(ref mut user_config) = *uc.borrow_mut() {
+            user_config.insert(user_id, config);
+            Ok(())
+        } else {
+            Err("User config storage not available".to_string())
+        }
+    })?;
+    
+    ic_cdk::println!("User config updated for user: {}", user_id);
+    Ok(())
+}
+
+// Get available models based on provider
+pub fn get_available_models(provider: &crate::types::ApiProvider) -> Vec<crate::types::ModelInfo> {
+    match provider {
+        crate::types::ApiProvider::OpenAI => vec![
+            crate::types::ModelInfo {
+                id: "text-embedding-ada-002".to_string(),
+                name: "text-embedding-ada-002".to_string(),
+                provider: "OpenAI".to_string(),
+                context_length: 8191,
+                pricing: Some(crate::types::ModelPricing {
+                    prompt: 0.0001,
+                    completion: 0.0001,
+                }),
+            },
+            crate::types::ModelInfo {
+                id: "text-embedding-3-small".to_string(),
+                name: "text-embedding-3-small".to_string(),
+                provider: "OpenAI".to_string(),
+                context_length: 8191,
+                pricing: Some(crate::types::ModelPricing {
+                    prompt: 0.00002,
+                    completion: 0.00002,
+                }),
+            },
+            crate::types::ModelInfo {
+                id: "text-embedding-3-large".to_string(),
+                name: "text-embedding-3-large".to_string(),
+                provider: "OpenAI".to_string(),
+                context_length: 8191,
+                pricing: Some(crate::types::ModelPricing {
+                    prompt: 0.00013,
+                    completion: 0.00013,
+                }),
+            },
+        ],
+        crate::types::ApiProvider::OpenRouter => vec![
+            crate::types::ModelInfo {
+                id: "text-embedding-ada-002".to_string(),
+                name: "OpenAI: text-embedding-ada-002".to_string(),
+                provider: "OpenRouter".to_string(),
+                context_length: 8191,
+                pricing: Some(crate::types::ModelPricing {
+                    prompt: 0.0001,
+                    completion: 0.0001,
+                }),
+            },
+            crate::types::ModelInfo {
+                id: "text-embedding-3-small".to_string(),
+                name: "OpenAI: text-embedding-3-small".to_string(),
+                provider: "OpenRouter".to_string(),
+                context_length: 8191,
+                pricing: Some(crate::types::ModelPricing {
+                    prompt: 0.00002,
+                    completion: 0.00002,
+                }),
+            },
+            crate::types::ModelInfo {
+                id: "text-embedding-3-large".to_string(),
+                name: "OpenAI: text-embedding-3-large".to_string(),
+                provider: "OpenRouter".to_string(),
+                context_length: 8191,
+                pricing: Some(crate::types::ModelPricing {
+                    prompt: 0.00013,
+                    completion: 0.00013,
+                }),
+            },
+        ],
+    }
+}
+
+// Access Token Management Functions
+pub fn create_access_token(
+    owner_principal: Principal,
+    description: Option<String>,
+    permissions: Vec<Permission>,
+    expires_in_days: u32,
+) -> Result<AccessToken, String> {
+    if !is_storage_initialized() {
+        return Err("Storage not initialized".to_string());
+    }
+    
+    let timestamp = ic_cdk::api::time();
+    let expires_at = timestamp + (expires_in_days as u64 * 24 * 60 * 60 * 1_000_000_000);
+    
+    // Generate secure token
+    let token = format!("om_token_{}", crate::utils::generate_uuid());
+    
+    let access_token = AccessToken {
+        token: token.clone(),
+        owner_principal,
+        issued_to: description,
+        permissions,
+        expires_at,
+        created_at: timestamp,
+        last_used_at: None,
+    };
+    
+    ACCESS_TOKENS.with(|tokens| {
+        if let Some(ref mut token_map) = *tokens.borrow_mut() {
+            token_map.insert(token.clone(), access_token.clone());
+            Ok(access_token)
+        } else {
+            Err("Access token storage not available".to_string())
+        }
+    })
+}
+
+pub fn verify_access_token(token: &str) -> Result<Principal, String> {
+    if !is_storage_initialized() {
+        return Err("Storage not initialized".to_string());
+    }
+    
+    ACCESS_TOKENS.with(|tokens| {
+        if let Some(ref mut token_map) = *tokens.borrow_mut() {
+            if let Some(mut access_token) = token_map.get(token) {
+                let current_time = ic_cdk::api::time();
+                
+                // Check if token is expired
+                if current_time > access_token.expires_at {
+                    // Remove expired token
+                    token_map.remove(token);
+                    return Err("Token expired".to_string());
+                }
+                
+                // Update last used time
+                access_token.last_used_at = Some(current_time);
+                token_map.insert(token.to_string(), access_token.clone());
+                
+                Ok(access_token.owner_principal)
+            } else {
+                Err("Invalid token".to_string())
+            }
+        } else {
+            Err("Access token storage not available".to_string())
+        }
+    })
+}
+
+pub fn get_user_tokens(user_principal: Principal) -> Result<Vec<TokenInfo>, String> {
+    if !is_storage_initialized() {
+        return Err("Storage not initialized".to_string());
+    }
+    
+    ACCESS_TOKENS.with(|tokens| {
+        if let Some(ref token_map) = *tokens.borrow() {
+            let mut user_tokens = Vec::new();
+            
+            for (_, token) in token_map.iter() {
+                if token.owner_principal == user_principal {
+                    user_tokens.push(TokenInfo {
+                        description: token.issued_to.clone(),
+                        permissions: token.permissions.clone(),
+                        expires_at: token.expires_at,
+                        created_at: token.created_at,
+                        last_used_at: token.last_used_at,
+                    });
+                }
+            }
+            
+            Ok(user_tokens)
+        } else {
+            Err("Access token storage not available".to_string())
+        }
+    })
+}
+
+pub fn revoke_access_token(token: &str, user_principal: Principal) -> Result<bool, String> {
+    if !is_storage_initialized() {
+        return Err("Storage not initialized".to_string());
+    }
+    
+    ACCESS_TOKENS.with(|tokens| {
+        if let Some(ref mut token_map) = *tokens.borrow_mut() {
+            if let Some(access_token) = token_map.get(token) {
+                // Check if user owns this token
+                if access_token.owner_principal == user_principal {
+                    token_map.remove(token);
+                    Ok(true)
+                } else {
+                    Err("Unauthorized to revoke this token".to_string())
+                }
+            } else {
+                Ok(false) // Token doesn't exist
+            }
+        } else {
+            Err("Access token storage not available".to_string())
+        }
+    })
+}
+
+pub fn cleanup_expired_tokens() -> Result<usize, String> {
+    if !is_storage_initialized() {
+        return Err("Storage not initialized".to_string());
+    }
+    
+    let current_time = ic_cdk::api::time();
+    let mut removed_count = 0;
+    
+    ACCESS_TOKENS.with(|tokens| {
+        if let Some(ref mut token_map) = *tokens.borrow_mut() {
+            let expired_tokens: Vec<String> = token_map
+                .iter()
+                .filter(|(_, token)| current_time > token.expires_at)
+                .map(|(token_id, _)| token_id)
+                .collect();
+            
+            for token_id in expired_tokens {
+                token_map.remove(&token_id);
+                removed_count += 1;
+            }
+            
+            Ok(removed_count)
+        } else {
+            Err("Access token storage not available".to_string())
         }
     })
 }

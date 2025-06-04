@@ -9,7 +9,8 @@ import { CategoriesPage } from '@/pages/CategoriesPage';
 import { SettingsPage } from '@/pages/SettingsPage';
 import { UserPage } from '@/pages/UserPage';
 import { IDEPage } from '@/pages/IDEPage';
-import ApiSettings from '@/components/ApiSettings';
+import { TokensPage } from '@/pages/TokensPage';
+import { VectorDBPage } from '@/pages/VectorDBPage';
 import { ToastContainer } from '@/components/ui/ToastContainer';
 import { openMemoryAPI } from '@/services/openmemory-api';
 import { useMemoryStore } from '@/stores/useMemoryStore';
@@ -100,7 +101,8 @@ function App() {
             <Route path="/settings" element={<SettingsPage />} />
             <Route path="/user" element={<UserPage />} />
             <Route path="/ide" element={<IDEPage />} />
-            <Route path="/api-settings" element={<ApiSettings />} />
+            <Route path="/tokens" element={<TokensPage />} />
+            <Route path="/vectordb" element={<VectorDBPage />} />
           </Routes>
         </motion.div>
       </Layout>

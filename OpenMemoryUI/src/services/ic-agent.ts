@@ -202,11 +202,41 @@ class ICAgentService {
       throw new Error('Agent not initialized');
     }
 
+    // Prepare headers
+    const headers: [string, string][] = [['Content-Type', 'application/json']];
+    
+    // Add authentication headers for POST/PUT/DELETE operations
+    if (method.toUpperCase() !== 'GET') {
+      const isAuth = await this.isAuthenticated();
+      console.log('🔐 Authentication status for API call:', isAuth);
+      
+      if (isAuth && this.authClient) {
+        try {
+          // Try to get the identity for Bearer token
+          const identity = this.authClient.getIdentity();
+          const principal = identity.getPrincipal();
+          console.log('👤 Principal for API call:', principal.toString());
+          
+          // For development, we'll use the API key approach instead of Bearer token
+          // since our backend is set up for API key authentication
+          const devApiKey = 'om_feoQrSrz5UqCQ3DjfaXkyMv7x4mtt08O';
+          headers.push(['X-API-Key', devApiKey]);
+          console.log('🔑 Added API key to request headers');
+        } catch (error) {
+          console.error('Failed to get identity for authentication:', error);
+          throw new Error('Authentication failed: Unable to get identity');
+        }
+      } else {
+        console.warn('⚠️ Not authenticated - API call may fail');
+        throw new Error('Authentication required for this operation');
+      }
+    }
+
     // Format request according to Candid interface
     const request: HttpRequest = {
       method: method.toUpperCase(),
       url: url.startsWith('/') ? url : `/${url}`,
-      headers: [['Content-Type', 'application/json']] as [string, string][],
+      headers: headers,
       body: body ? Array.from(new TextEncoder().encode(body)) : [],
     };
 
@@ -295,6 +325,45 @@ class ICAgentService {
       memory_content,
     });
     return this.makeCanisterCall('POST', 'categories/suggest', body);
+  }
+
+  // Access Token Management
+  async createAccessToken(description: string, expiresInDays: number, permissions: string[]) {
+    const body = JSON.stringify({
+      description,
+      expires_in_days: expiresInDays,
+      permissions,
+    });
+    return this.makeCanisterCall('POST', 'auth/tokens', body);
+  }
+
+  async listAccessTokens() {
+    return this.makeCanisterCall('GET', 'auth/tokens');
+  }
+
+  async revokeAccessToken(token: string) {
+    return this.makeCanisterCall('DELETE', `auth/tokens/${token}`);
+  }
+
+  // VectorDB Management
+  async getVectorStats() {
+    return this.makeCanisterCall('GET', 'vector/stats');
+  }
+
+  async getVectorConfig() {
+    return this.makeCanisterCall('GET', 'vector/config');
+  }
+
+  async getVectorMetrics() {
+    return this.makeCanisterCall('GET', 'vector/metrics');
+  }
+
+  async optimizeVectorIndex() {
+    return this.makeCanisterCall('POST', 'vector/optimize');
+  }
+
+  async rebuildVectorIndex() {
+    return this.makeCanisterCall('POST', 'vector/rebuild');
   }
 }
 

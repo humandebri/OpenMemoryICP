@@ -11,6 +11,8 @@ mod internet_identity;
 mod vector_store;
 mod suggestions;
 mod clustering;
+mod errors;
+mod validation;
 
 pub use types::*;
 pub use http_handlers::*;
@@ -22,6 +24,8 @@ pub use embedding::*;
 pub use vector_store::*;
 pub use suggestions::*;
 pub use clustering::*;
+pub use errors::*;
+pub use validation::*;
 
 // Export the main HTTP handlers for the canister
 #[query]

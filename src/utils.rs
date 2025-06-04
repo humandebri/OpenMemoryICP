@@ -1,8 +1,14 @@
 use crate::types::*;
+use crate::errors::*;
 use url::Url;
 use std::collections::HashMap;
+use std::cell::RefCell;
 use ic_cdk::api::time;
 use sha2::{Sha256, Digest};
+
+thread_local! {
+    static UUID_COUNTER: RefCell<u64> = RefCell::new(0);
+}
 
 pub fn extract_path(url: &str) -> String {
     if let Ok(parsed_url) = Url::parse(&format!("http://localhost{}", url)) {
@@ -50,29 +56,33 @@ pub fn extract_path_param(path: &str, pattern: &str) -> Option<String> {
 }
 
 pub fn generate_uuid() -> String {
-    // Create a simple UUID using time and counter for uniqueness
-    static mut COUNTER: u64 = 0;
+    // Create a unique ID using time, counter, and caller for uniqueness
+    let counter = UUID_COUNTER.with(|c| {
+        let mut count = c.borrow_mut();
+        *count = count.wrapping_add(1);
+        *count
+    });
     
-    unsafe {
-        COUNTER = COUNTER.wrapping_add(1);
-        let time_ns = time();
-        let data = format!("{}_{}", time_ns, COUNTER);
-        
-        // Hash the data to create a UUID-like string
-        let mut hasher = Sha256::new();
-        hasher.update(data.as_bytes());
-        let result = hasher.finalize();
-        
-        // Format as a UUID-like string
-        format!(
-            "{:08x}-{:04x}-{:04x}-{:04x}-{:012x}",
-            u32::from_be_bytes([result[0], result[1], result[2], result[3]]),
-            u16::from_be_bytes([result[4], result[5]]),
-            u16::from_be_bytes([result[6], result[7]]),
-            u16::from_be_bytes([result[8], result[9]]),
-            u64::from_be_bytes([result[10], result[11], result[12], result[13], result[14], result[15], 0, 0]) >> 16
-        )
-    }
+    let time_ns = time();
+    let caller = ic_cdk::caller();
+    
+    // Create a unique string by combining time, counter, and caller principal
+    let mut hasher = Sha256::new();
+    hasher.update(&time_ns.to_be_bytes());
+    hasher.update(&counter.to_be_bytes());
+    hasher.update(caller.as_slice());
+    
+    let result = hasher.finalize();
+    
+    // Format as a UUID-like string for better readability
+    format!(
+        "{:08x}-{:04x}-{:04x}-{:04x}-{:012x}",
+        u32::from_be_bytes([result[0], result[1], result[2], result[3]]),
+        u16::from_be_bytes([result[4], result[5]]),
+        u16::from_be_bytes([result[6], result[7]]),
+        u16::from_be_bytes([result[8], result[9]]),
+        u64::from_be_bytes([result[10], result[11], result[12], result[13], result[14], result[15], 0, 0]) >> 16
+    )
 }
 
 pub fn get_current_time() -> u64 {
@@ -91,15 +101,30 @@ pub fn create_cors_headers() -> Vec<(String, String)> {
 }
 
 pub fn error_response(status_code: u16, message: &str) -> HttpResponse {
-    let error = ErrorResponse {
+    let error = crate::errors::ErrorResponse {
         error: message.to_string(),
         code: status_code,
+        category: "unknown".to_string(),
+        retry_after: None,
+        context: None,
     };
     
     HttpResponse {
         status_code,
         headers: create_cors_headers(),
         body: serde_json::to_vec(&error).unwrap_or_default(),
+        upgrade: None,
+    }
+}
+
+pub fn error_response_from_error(error: OpenMemoryError) -> HttpResponse {
+    let status_code = error.status_code();
+    let error_response = crate::errors::ErrorResponse::from(error);
+    
+    HttpResponse {
+        status_code,
+        headers: create_cors_headers(),
+        body: serde_json::to_vec(&error_response).unwrap_or_default(),
         upgrade: None,
     }
 }

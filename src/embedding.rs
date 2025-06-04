@@ -5,44 +5,74 @@ use ic_cdk::api::management_canister::http_request::{
 use candid::Principal;
 
 const OPENAI_API_URL: &str = "https://api.openai.com/v1/embeddings";
-const EMBEDDING_MODEL: &str = "text-embedding-ada-002";
+const OPENROUTER_API_URL: &str = "https://openrouter.ai/api/v1/embeddings";
+const DEFAULT_OPENAI_MODEL: &str = "text-embedding-ada-002";
+const DEFAULT_OPENROUTER_MODEL: &str = "text-embedding-ada-002";
 const MAX_RESPONSE_BYTES: u64 = 8192;
 
-pub async fn generate_embedding(text: &str) -> Result<Vec<f32>, String> {
+pub async fn generate_embedding_for_user(text: &str, user_id: Principal) -> Result<Vec<f32>, String> {
     if text.trim().is_empty() {
         return Err("Text cannot be empty".to_string());
     }
     
-    let api_key = get_openai_api_key()?;
+    let user_config = match crate::storage::get_user_config(user_id) {
+        Ok(Some(config)) => config,
+        Ok(None) => return Err("No API configuration found. Please set your API key in settings.".to_string()),
+        Err(e) => return Err(format!("Failed to get user config: {}", e)),
+    };
+
+    let (api_key, api_url, model) = match user_config.api_provider {
+        crate::types::ApiProvider::OpenAI => {
+            let key = user_config.openai_api_key
+                .ok_or("OpenAI API key not configured. Please set your API key in settings.")?;
+            (key, OPENAI_API_URL.to_string(), user_config.embedding_model)
+        }
+        crate::types::ApiProvider::OpenRouter => {
+            let key = user_config.openrouter_api_key
+                .ok_or("OpenRouter API key not configured. Please set your API key in settings.")?;
+            (key, OPENROUTER_API_URL.to_string(), user_config.embedding_model)
+        }
+    };
     
     let request_body = EmbeddingRequest {
-        model: EMBEDDING_MODEL.to_string(),
+        model: model,
         input: text.to_string(),
         encoding_format: "float".to_string(),
     };
     
     let body_bytes = serde_json::to_vec(&request_body)
         .map_err(|e| format!("Failed to serialize request: {}", e))?;
+
+    // Prepare headers based on provider
+    let mut headers = vec![
+        HttpHeader {
+            name: "Content-Type".to_string(),
+            value: "application/json".to_string(),
+        },
+        HttpHeader {
+            name: "Authorization".to_string(),
+            value: format!("Bearer {}", api_key),
+        },
+    ];
+
+    // Add OpenRouter specific headers
+    if matches!(user_config.api_provider, crate::types::ApiProvider::OpenRouter) {
+        headers.push(HttpHeader {
+            name: "HTTP-Referer".to_string(),
+            value: "https://openmemory.ai".to_string(),
+        });
+        headers.push(HttpHeader {
+            name: "X-Title".to_string(),
+            value: "OpenMemory".to_string(),
+        });
+    }
     
     let http_request = CanisterHttpRequestArgument {
-        url: OPENAI_API_URL.to_string(),
+        url: api_url,
         method: HttpMethod::POST,
         body: Some(body_bytes),
         max_response_bytes: Some(MAX_RESPONSE_BYTES),
-        headers: vec![
-            HttpHeader {
-                name: "Authorization".to_string(),
-                value: format!("Bearer {}", api_key),
-            },
-            HttpHeader {
-                name: "Content-Type".to_string(),
-                value: "application/json".to_string(),
-            },
-            HttpHeader {
-                name: "User-Agent".to_string(),
-                value: "OpenMemory-ICP/1.0".to_string(),
-            },
-        ],
+        headers,
         transform: None,
     };
     
@@ -75,42 +105,19 @@ pub async fn generate_embedding(text: &str) -> Result<Vec<f32>, String> {
     Ok(embedding_response.data[0].embedding.clone())
 }
 
-pub async fn generate_multiple_embeddings(texts: Vec<String>) -> Result<Vec<Vec<f32>>, String> {
+// Batch processing support for multiple users
+pub async fn generate_multiple_embeddings_for_user(texts: Vec<String>, user_id: Principal) -> Result<Vec<Vec<f32>>, String> {
     let mut embeddings = Vec::new();
     
     for text in texts {
-        let embedding = generate_embedding(&text).await?;
+        let embedding = generate_embedding_for_user(&text, user_id).await?;
         embeddings.push(embedding);
         
         // Add a small delay to avoid rate limiting
-        ic_cdk::println!("Generated embedding {} of {}", embeddings.len(), embeddings.capacity());
+        ic_cdk::println!("Generated embedding {} of {}", embeddings.len(), texts.len());
     }
     
     Ok(embeddings)
-}
-
-fn get_openai_api_key() -> Result<String, String> {
-    // In a production environment, this should be stored securely
-    // Options include:
-    // 1. Environment variables (if supported by the canister runtime)
-    // 2. Canister settings/configuration
-    // 3. Encrypted storage with Internet Identity-based decryption
-    // 4. External key management service
-    
-    // For development, we'll use a placeholder
-    // TODO: Implement secure API key storage
-    std::env::var("OPENAI_API_KEY")
-        .or_else(|_| {
-            // Fallback to a configuration that should be set during deployment
-            get_canister_config("openai_api_key")
-        })
-        .map_err(|_| "OpenAI API key not configured. Please set OPENAI_API_KEY environment variable or canister configuration".to_string())
-}
-
-fn get_canister_config(_key: &str) -> Result<String, std::env::VarError> {
-    // TODO: Implement canister configuration storage
-    // This could use stable memory to store configuration values
-    Err(std::env::VarError::NotPresent)
 }
 
 pub fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
@@ -151,12 +158,12 @@ pub fn normalize_embedding(embedding: &mut [f32]) {
 }
 
 // Batch processing for better efficiency
-pub async fn generate_embeddings_batch(texts: Vec<String>, batch_size: usize) -> Result<Vec<Vec<f32>>, String> {
+pub async fn generate_embeddings_batch_for_user(texts: Vec<String>, batch_size: usize, user_id: Principal) -> Result<Vec<Vec<f32>>, String> {
     let mut all_embeddings = Vec::new();
     
     for chunk in texts.chunks(batch_size) {
         for text in chunk {
-            let embedding = generate_embedding(text).await?;
+            let embedding = generate_embedding_for_user(text, user_id).await?;
             all_embeddings.push(embedding);
         }
         
@@ -171,11 +178,11 @@ pub async fn generate_embeddings_batch(texts: Vec<String>, batch_size: usize) ->
 }
 
 // Error recovery and retry logic
-pub async fn generate_embedding_with_retry(text: &str, max_retries: u32) -> Result<Vec<f32>, String> {
+pub async fn generate_embedding_with_retry_for_user(text: &str, max_retries: u32, user_id: Principal) -> Result<Vec<f32>, String> {
     let mut last_error = String::new();
     
     for attempt in 1..=max_retries {
-        match generate_embedding(text).await {
+        match generate_embedding_for_user(text, user_id).await {
             Ok(embedding) => return Ok(embedding),
             Err(e) => {
                 last_error = e.clone();

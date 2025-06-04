@@ -1,54 +1,207 @@
-# OpenMemory API Documentation
+# OpenMemory - AI-Powered Personal Memory System on ICP
 
-OpenMemoryは、ICP（Internet Computer Protocol）上に構築されたAI駆動メモリ管理システムです。このAPIを使用すると、外部アプリケーションからメモリの保存、検索、管理、および会話履歴の管理が可能です。
+> 🧠 **Personal AI Memory System** - Internet Computer Protocol上で動作する、セマンティック検索とAI分析を備えた次世代パーソナルメモリシステム
 
-## 📚 目次
+[![IC Network](https://img.shields.io/badge/IC-Mainnet-blue)](https://77fv5-oiaaa-aaaal-qsoea-cai.icp0.io)
+[![Frontend](https://img.shields.io/badge/Frontend-Live-green)](https://7yetj-dqaaa-aaaal-qsoeq-cai.icp0.io)
+[![CLI](https://img.shields.io/badge/CLI-Available-orange)](./openmemory-cli/)
+[![License](https://img.shields.io/badge/License-MIT-yellow)](LICENSE)
 
-- [概要](#概要)
-- [API エンドポイント](#api-エンドポイント)
-- [認証](#認証)
-- [メモリ管理](#メモリ管理)
-- [会話履歴管理](#会話履歴管理)
-- [検索機能](#検索機能)
-- [クラスタリング](#クラスタリング)
-- [SDK の使用](#sdk-の使用)
-- [エラーハンドリング](#エラーハンドリング)
-- [レート制限](#レート制限)
+## 🌟 概要
 
-## 🚀 概要
+OpenMemoryは、Internet Computer Protocol（ICP）上に構築された革新的なAI駆動メモリ管理システムです。個人の知識を効率的に保存・整理・検索し、AIによる意味理解でコンテキストに基づいた情報の発見を可能にします。
 
-### ベースURL
-- **Mainnet**: `https://77fv5-oiaaa-aaaal-qsoea-cai.raw.icp0.io`
+### ✨ 主な特徴
+
+- 🔍 **セマンティック検索** - OpenAI埋め込みベクトルによる意味理解検索
+- 🧩 **自動クラスタリング** - 関連するメモリの自動分類・整理
+- 🔐 **分散認証** - Internet Identityとハイブリッドトークン認証
+- 💻 **CLI & Frontend** - ウェブUI + 専用CLIツール
+- 🌐 **外部連携** - REST API + Claude Code統合
+- 📝 **会話管理** - IDEとの統合による開発履歴保存
+
+### 🏗️ アーキテクチャ
+
+```mermaid
+graph TB
+    subgraph "Frontend Layer"
+        UI[Web UI<br/>React + TypeScript]
+        CLI[CLI Tool<br/>Rust]
+    end
+    
+    subgraph "Internet Computer"
+        Canister[OpenMemory Canister<br/>Rust + Candid]
+        Storage[Stable Memory<br/>StableBTreeMap]
+    end
+    
+    subgraph "AI Services"
+        OpenAI[OpenAI API<br/>Embeddings]
+        Vector[Vector Store<br/>Similarity Search]
+    end
+    
+    subgraph "Authentication"
+        II[Internet Identity]
+        Token[Access Tokens]
+        API[API Keys]
+    end
+    
+    UI -->|HTTPS| Canister
+    CLI -->|IC Agent| Canister
+    Canister -->|HTTP Outcalls| OpenAI
+    Canister <-->|Read/Write| Storage
+    Canister -->|Vector Search| Vector
+    
+    II -->|Authenticate| UI
+    Token -->|Hybrid Auth| CLI
+    API -->|External Apps| Canister
+```
+
+## 🚀 クイックスタート
+
+### 1. ウェブUIを試す
+```bash
+# ブラウザで以下にアクセス
+https://7yetj-dqaaa-aaaal-qsoeq-cai.icp0.io
+```
+
+### 2. CLIツールをインストール
+```bash
+cd openmemory-cli
+cargo install --path .
+openmemory init
+```
+
+### 3. APIを使用
+```bash
+curl -X POST "https://77fv5-oiaaa-aaaal-qsoea-cai.raw.icp0.io/memories" \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: openmemory-api-key-development" \
+  -d '{"content":"AIメモリシステムのテスト"}'
+```
+
+## 📚 ドキュメント目次
+
+- [インストールとセットアップ](#インストールとセットアップ)
+- [認証システム](#認証システム)
+- [API リファレンス](#api-リファレンス)
+- [CLI使用方法](#cli使用方法)
+- [開発者ガイド](#開発者ガイド)
+- [統合例](#統合例)
+
+## 🛠️ インストールとセットアップ
+
+### システム要件
+- **Rust**: 1.70+ (Canister開発用)
+- **Node.js**: 18+ (Frontend開発用)  
+- **dfx**: 0.27.0+ (ICP開発用)
+
+### ローカル開発環境
+```bash
+# 1. リポジトリをクローン
+git clone <repository-url>
+cd OpenMemory
+
+# 2. ICPローカルネットワークを起動
+dfx start --background
+
+# 3. Canisterをビルド・デプロイ
+dfx build
+dfx deploy
+
+# 4. フロントエンドを起動
+cd OpenMemoryUI
+npm install
+npm run dev
+
+# 5. CLIツールをビルド
+cd ../openmemory-cli
+cargo build --release
+```
+
+### 本番環境接続
+- **Canister**: `https://77fv5-oiaaa-aaaal-qsoea-cai.raw.icp0.io`
 - **Frontend**: `https://7yetj-dqaaa-aaaal-qsoeq-cai.icp0.io`
 
-### 対応形式
-- リクエスト: `application/json`
-- レスポンス: `application/json`
+## 🔐 認証システム
 
-## 🔐 認証
+OpenMemoryは3つの認証方式をサポートしています：
 
-OpenMemory APIは2つの認証方法をサポートしています：
+### 1. Internet Identity（推奨・フロントエンド）
+```typescript
+// ウェブUIでの使用
+import { AuthClient } from "@dfinity/auth-client";
 
-### 1. API Key認証（推奨）
+const authClient = await AuthClient.create();
+await authClient.login({
+  identityProvider: "https://identity.ic0.app"
+});
+```
+
+### 2. ハイブリッドトークン認証（CLI連携）
+```bash
+# 1. フロントエンドでII認証してトークン生成
+# 2. CLIでトークン使用
+openmemory token use om_token_abc123...
+openmemory add "フロントエンドと同期されるメモリ"
+```
+
+### 3. API Key認証（外部統合）
 ```bash
 curl -X POST "${BASE_URL}/memories" \
   -H "Content-Type: application/json" \
-  -H "X-API-Key: your_api_key_here" \
+  -H "X-API-Key: openmemory-api-key-development" \
   -d '{"content":"テストメモリ"}'
 ```
 
-### 2. Bearer Token認証
+### 認証方式比較
+
+| 方式 | 使用場面 | セキュリティ | データ共有 |
+|------|---------|-------------|----------|
+| Internet Identity | Webアプリ | 最高 | ✅ |
+| ハイブリッドトークン | CLI↔Web連携 | 高 | ✅ |
+| API Key | 外部統合・開発 | 中 | ❌ |
+
+## 💻 CLI使用方法
+
+詳細は[CLI README](./openmemory-cli/README.md)を参照してください。
+
+### 基本的な使用方法
 ```bash
-curl -X POST "${BASE_URL}/memories" \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer your_bearer_token" \
-  -d '{"content":"テストメモリ"}'
+# 初期設定
+openmemory init
+
+# メモリ追加
+openmemory add "今日学んだRustのthread_localパターンについて" --tags "rust,programming"
+
+# セマンティック検索
+openmemory search "Rustの並行処理"
+
+# トークン管理（フロントエンド連携）
+openmemory token create --description "MacBook CLI" --expires-in-days 30
+openmemory token use om_token_abc123...
+
+# 設定確認
+openmemory whoami
 ```
 
-### 開発用APIキー
-開発・テスト用に以下のAPIキーを使用できます：
-- `openmemory-api-key-development`
-- `claude-code-integration-key`
+## 📡 API リファレンス
+
+### エンドポイント一覧
+
+| Method | Endpoint | 説明 | 認証 |
+|--------|----------|------|------|
+| POST | `/memories` | メモリ追加 | 必須 |
+| GET | `/memories` | メモリ一覧 | 必須 |
+| GET | `/memories/{id}` | 特定メモリ取得 | 必須 |
+| DELETE | `/memories/{id}` | メモリ削除 | 必須 |
+| POST | `/memories/search` | セマンティック検索 | 必須 |
+| POST | `/conversations` | 会話保存 | 必須 |
+| GET | `/conversations` | 会話一覧 | 必須 |
+| POST | `/auth/tokens` | トークン作成 | II必須 |
+| GET | `/auth/tokens` | トークン一覧 | 必須 |
+| DELETE | `/auth/tokens/{token}` | トークン無効化 | 必須 |
+| GET | `/clusters` | クラスター一覧 | 任意 |
+| GET | `/health` | ヘルスチェック | 不要 |
 
 ## 📝 メモリ管理
 

@@ -66,16 +66,19 @@ pub async fn generate_embedding_and_search(
     user_filter: Option<Principal>,
     tags: Option<Vec<String>>,
 ) -> Result<Vec<SearchResult>, String> {
-    // Generate embedding for query
-    match crate::embedding::generate_embedding(query).await {
+    // Use the user_filter as the user_id for generating embeddings
+    let user_id = user_filter.ok_or("User ID required for search")?;
+    
+    // Generate embedding for query using the user's API configuration
+    match crate::embedding::generate_embedding_for_user(query, user_id).await {
         Ok(query_embedding) => {
             // Perform semantic search
-            semantic_search(query_embedding, limit, user_filter, tags).await
+            semantic_search(query_embedding, limit, Some(user_id), tags).await
         }
         Err(e) => {
             ic_cdk::println!("Failed to generate embedding for search: {}", e);
             // Fallback to simple text search
-            crate::storage::search_memories_simple(query, limit, tags, user_filter)
+            crate::storage::search_memories_simple(query, limit, tags, Some(user_id))
         }
     }
 }

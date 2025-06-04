@@ -14,7 +14,8 @@ import {
   Sparkles,
   TrendingUp,
   Code,
-  Key
+  Key,
+  Database
 } from 'lucide-react';
 import { useMemoryStore } from '@/stores/useMemoryStore';
 
@@ -24,8 +25,9 @@ const navigation = [
   { name: 'Clusters', href: '/clusters', icon: Layers, description: 'Organized memory groups' },
   { name: 'Categories', href: '/categories', icon: Tags, description: 'Memory categories' },
   { name: 'IDE Integration', href: '/ide', icon: Code, description: 'Save conversations' },
-  { name: 'API Settings', href: '/api-settings', icon: Key, description: 'API keys & configuration' },
-  { name: 'Settings', href: '/settings', icon: Settings, description: 'App preferences' },
+  { name: 'Access Tokens', href: '/tokens', icon: Key, description: 'API & CLI authentication' },
+  { name: 'Vector DB', href: '/vectordb', icon: Database, description: 'Vector store management' },
+  { name: 'Settings', href: '/settings', icon: Settings, description: 'Account, AI & API settings' },
 ];
 
 interface SidebarProps {

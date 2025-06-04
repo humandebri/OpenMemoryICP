@@ -92,6 +92,7 @@ pub struct ListMemoriesResponse {
 }
 
 #[derive(Serialize)]
+// Legacy error response (deprecated - use errors::ErrorResponse instead)
 pub struct ErrorResponse {
     pub error: String,
     pub code: u16,
@@ -137,6 +138,115 @@ pub struct AuthToken {
     pub token: String,
     pub user_id: Principal,
     pub expires_at: u64,
+}
+
+// Hybrid Token Authentication Types
+#[derive(CandidType, Deserialize, Serialize, Clone, Debug)]
+pub struct AccessToken {
+    pub token: String,
+    pub owner_principal: Principal, // The II Principal
+    pub issued_to: Option<String>,  // Description like "CLI on MacBook"
+    pub permissions: Vec<Permission>,
+    pub expires_at: u64,
+    pub created_at: u64,
+    pub last_used_at: Option<u64>,
+}
+
+#[derive(CandidType, Deserialize, Serialize, Clone, Debug)]
+pub enum Permission {
+    Read,
+    Write,
+    Delete,
+    ManageConfig,
+}
+
+#[derive(Deserialize)]
+pub struct CreateTokenRequest {
+    pub description: Option<String>, // "CLI on MacBook", "Android App", etc.
+    pub permissions: Option<Vec<Permission>>,
+    pub expires_in_days: Option<u32>, // Default 30 days
+}
+
+#[derive(Serialize)]
+pub struct CreateTokenResponse {
+    pub token: String,
+    pub expires_at: u64,
+    pub permissions: Vec<Permission>,
+}
+
+#[derive(Serialize)]
+pub struct TokenInfo {
+    pub description: Option<String>,
+    pub permissions: Vec<Permission>,
+    pub expires_at: u64,
+    pub created_at: u64,
+    pub last_used_at: Option<u64>,
+}
+
+// API Provider Types
+#[derive(CandidType, Deserialize, Serialize, Clone, Debug)]
+pub enum ApiProvider {
+    OpenAI,
+    OpenRouter,
+}
+
+impl Default for ApiProvider {
+    fn default() -> Self {
+        ApiProvider::OpenAI
+    }
+}
+
+// API Key Configuration Types
+#[derive(CandidType, Deserialize, Serialize, Clone, Debug)]
+pub struct UserConfig {
+    pub user_id: Principal,
+    pub openai_api_key: Option<String>,
+    pub openrouter_api_key: Option<String>,
+    pub api_provider: ApiProvider,
+    pub embedding_model: String,
+    pub created_at: u64,
+    pub updated_at: u64,
+}
+
+#[derive(Deserialize)]
+pub struct SetApiKeyRequest {
+    pub api_key: String,
+    pub provider: Option<String>, // "openai" or "openrouter"
+}
+
+#[derive(Deserialize)]
+pub struct UpdateConfigRequest {
+    pub openai_api_key: Option<String>,
+    pub openrouter_api_key: Option<String>,
+    pub api_provider: Option<String>, // "openai" or "openrouter"
+    pub embedding_model: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct ConfigResponse {
+    pub has_openai_key: bool,
+    pub has_openrouter_key: bool,
+    pub openai_key_preview: Option<String>,
+    pub openrouter_key_preview: Option<String>,
+    pub api_provider: String,
+    pub embedding_model: String,
+    pub available_models: Vec<ModelInfo>,
+    pub updated_at: Option<u64>,
+}
+
+#[derive(Serialize, Clone)]
+pub struct ModelInfo {
+    pub id: String,
+    pub name: String,
+    pub provider: String,
+    pub context_length: u32,
+    pub pricing: Option<ModelPricing>,
+}
+
+#[derive(Serialize, Clone)]
+pub struct ModelPricing {
+    pub prompt: f64,
+    pub completion: f64,
 }
 
 // Implement Storable for Memory type
@@ -186,6 +296,32 @@ impl Storable for UserMemoryList {
 }
 
 impl Storable for UserConversationList {
+    const BOUND: Bound = Bound::Unbounded;
+
+    fn to_bytes(&self) -> Cow<[u8]> {
+        Cow::Owned(candid::encode_one(self).unwrap())
+    }
+
+    fn from_bytes(bytes: Cow<[u8]>) -> Self {
+        candid::decode_one(&bytes).unwrap()
+    }
+}
+
+// Implement Storable for UserConfig
+impl Storable for UserConfig {
+    const BOUND: Bound = Bound::Unbounded;
+
+    fn to_bytes(&self) -> Cow<[u8]> {
+        Cow::Owned(candid::encode_one(self).unwrap())
+    }
+
+    fn from_bytes(bytes: Cow<[u8]>) -> Self {
+        candid::decode_one(&bytes).unwrap()
+    }
+}
+
+// Implement Storable for AccessToken
+impl Storable for AccessToken {
     const BOUND: Bound = Bound::Unbounded;
 
     fn to_bytes(&self) -> Cow<[u8]> {
